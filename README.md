@@ -31,7 +31,9 @@ A browser app for planning IP address space for Azure Landing Zone network desig
   - for hub & spoke: hub↔spoke peerings both ways, plus hub-to-hub peerings between regions
   - for Virtual WAN: the vWAN, its hubs and its spoke connections
   
-  Everything deploys into one resource group (default `rg-alz-network`). Anything the plan couldn't allocate is listed at the top of the file. To write sample files for `az bicep build` / `terraform validate`, run `IAC_OUT_DIR=<dir> npm test`.
+  Exported names follow `<app>-<environment><region><int>-<resourcetype>`, for example `hub-prdeus201-vnet`, `corp-prdeus2001-vnet` or `identity-prdeus201-snet`. The `<app>` comes from each VNet or subnet's planner name, and the `<region>` codes are defined in `src/lib/naming.ts`. Environment, instance and the shared app (used for the resource group and vWAN) are editable in the dialog. Azure-reserved subnet names such as GatewaySubnet are kept, and the planner itself keeps its readable names.
+  
+  Everything deploys into one resource group (default `network-prdeus201-rg`). Anything the plan couldn't allocate is listed at the top of the file. To write sample files for `az bicep build` / `terraform validate`, run `IAC_OUT_DIR=<dir> npm test`.
 
 The plan is saved automatically to your browser's local storage.
 

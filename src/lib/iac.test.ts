@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { defaultPlan, makeRegion } from './defaults';
+import { SPOKE_TEMPLATES, defaultPlan, makeRegion } from './defaults';
 import { IAC_FILE_NAME, buildIacModel, generateIac, toTerraform } from './iac';
 import { computePlan } from './planner';
 
@@ -20,20 +20,65 @@ describe('IaC export', () => {
     expect(m.virtualHubs).toHaveLength(0);
     // Hub↔spoke both ways (2 × 5 × 2) plus the two hubs peered both ways.
     expect(m.peerings).toHaveLength(22);
-    expect(m.peerings.at(-1)!.name).toBe('peer-vnet-hub-centralus-to-vnet-hub-eastus2');
+    // Central US hub → East US 2 hub, named after the remote VNet.
+    expect(m.peerings.at(-1)!.name).toBe('hub-prdeus201-peer');
     const hub = m.vnets[0];
-    expect(hub).toMatchObject({ name: 'vnet-hub-eastus2', location: 'eastus2', prefix: '10.0.0.0/22' });
-    expect(hub.subnets.find((s) => s.name === 'snet-dns-inbound')!.delegation).toBe('Microsoft.Network/dnsResolvers');
+    expect(hub).toMatchObject({ name: 'hub-prdeus201-vnet', location: 'eastus2', prefix: '10.0.0.0/22' });
+    expect(hub.subnets.find((s) => s.name === 'dnsinbound-prdeus201-snet')!.delegation).toBe('Microsoft.Network/dnsResolvers');
     expect(hub.subnets.find((s) => s.name === 'GatewaySubnet')!.delegation).toBeUndefined();
     expect(m.omitted).toEqual([]);
   });
 
   it('models Virtual WAN regions as virtual hubs with spoke connections', () => {
     const m = model(vwanPlan());
-    expect(m.virtualHubs).toEqual([{ name: 'vhub-eastus2', location: 'eastus2', prefix: '10.0.0.0/23' }]);
+    expect(m.virtualHubs).toEqual([{ name: 'hub-prdeus201-vhub', location: 'eastus2', prefix: '10.0.0.0/23' }]);
+    expect(m.virtualWan).toBe('network-prdeus201-vwan');
+    expect(m.hubConnections[0].name).toBe('identity-prdeus201-conn');
     expect(m.hubConnections).toHaveLength(5);
     expect(m.vnets).toHaveLength(11);
     expect(m.peerings).toHaveLength(10); // only Central US's hub and spokes
+  });
+
+  it('names resources <app>-<environment><region><int>-<resourcetype>', () => {
+    const m = model();
+    expect(m.resourceGroup).toBe('network-prdeus201-rg');
+    expect(m.vnets.map((v) => v.name)).toEqual([
+      'hub-prdeus201-vnet',
+      'identity-prdeus201-vnet',
+      'management-prdeus201-vnet',
+      'security-prdeus201-vnet',
+      'corp-prdeus2001-vnet', // keeps the 001 from vnet-corp-eastus2-001
+      'online-prdeus2001-vnet',
+      'hub-prdcus01-vnet',
+      'identity-prdcus01-vnet',
+      'management-prdcus01-vnet',
+      'security-prdcus01-vnet',
+      'corp-prdcus001-vnet',
+      'online-prdcus001-vnet',
+    ]);
+    expect(m.vnets[0].subnets.map((s) => s.name).slice(0, 5)).toEqual([
+      'nvaoutside-prdeus201-snet',
+      'nvainside-prdeus201-snet',
+      'nvaha-prdeus201-snet',
+      'nvamgmt-prdeus201-snet',
+      'GatewaySubnet', // Azure-reserved names are kept
+    ]);
+    expect(m.vnets[1].subnets[0].name).toBe('identity-prdeus201-snet');
+  });
+
+  it('uses the chosen app, environment and instance, and numbers repeats', () => {
+    const plan = defaultPlan();
+    plan.regions[0].spokes.push(SPOKE_TEMPLATES.empty.make('eastus2'), SPOKE_TEMPLATES.empty.make('eastus2'));
+    const m = buildIacModel(plan, computePlan(plan), { app: 'Contoso Net', environment: 'DEV', instance: '02' });
+    expect(m.resourceGroup).toBe('contosonet-deveus202-rg');
+    expect(m.vnets[0].name).toBe('hub-deveus202-vnet');
+    expect(m.vnets.filter((v) => v.name.startsWith('spoke-')).map((v) => v.name)).toEqual([
+      'spoke-deveus202-vnet',
+      'spoke-deveus203-vnet',
+    ]);
+    const tf = toTerraform(m);
+    expect(tf).toContain('"hub-deveus202-vnet/identity-deveus202-peer" = {');
+    expect(tf).toContain('default = "contosonet-deveus202-rg"');
   });
 
   it('lists what it leaves out', () => {
@@ -48,7 +93,7 @@ describe('IaC export', () => {
     const m = model();
     m.vnets[0].name = `it's a "\${name}"`;
     expect(toTerraform(m)).toContain(`"it's a \\"$\${name}\\""`);
-    expect(generateIac('bicep', defaultPlan(), computePlan(defaultPlan()))).toContain("name: 'vnet-hub-eastus2'");
+    expect(generateIac('bicep', defaultPlan(), computePlan(defaultPlan()))).toContain("name: 'hub-prdeus201-vnet'");
   });
 
   it('only emits Virtual WAN resources when the plan uses Virtual WAN', () => {
