@@ -1,0 +1,44 @@
+# ALZ CIDR Planner
+
+A browser app for planning IP address space for Azure Landing Zone network designs.
+
+- **Root address space → regions → VNets → subnets.** You set a size (prefix length) for each block and the app places it in the next free aligned slot. You can also pin any block to a specific CIDR for brownfield ranges.
+- **Multiple regions, each with a /16 and its own hub.** The default root `10.0.0.0/12` holds 16 regional /16s. "Add region" picks the next unused Azure location. A Regions overview table lists every region's range and hub range. If the root runs out of space, the app suggests the smallest wider root that fits. Changing a region's location renames its VNets to match.
+- **Visual subnet editor** for each VNet, inspired by [visualsubnetcalc.com](https://visualsubnetcalc.com/). Every row is a block of the VNet's range:
+  - **Divide** splits a row in half.
+  - Typing a name turns a free block into a subnet.
+  - The coloured bars on the right are the parent blocks; click one to join everything under it.
+  
+  Positions are stored relative to the VNet, so the layout moves with it. **Auto-pack** throws the layout away and packs subnets first-fit again. The **List** tab keeps the size-based editor.
+- **Hub & spoke or Virtual WAN** per region. Hub-spoke hubs come with GatewaySubnet, AzureFirewallSubnet, AzureFirewallManagementSubnet, AzureBastionSubnet and DNS Private Resolver subnets. Virtual WAN hubs are checked against the /24 minimum (/23 recommended).
+- **Spoke templates** for identity, management, corp and online landing zones.
+- **Azure validation:**
+  - reserved subnet names and their minimum sizes
+  - the /29 smallest-subnet limit
+  - 5 reserved IPs per subnet in the "usable" count
+  - duplicate subnet names
+  - hub-only subnets placed in spokes
+  - non-private or forbidden root ranges
+  - overlaps and overflow
+- **Table view** with first and last addresses, plus a "Copy as CSV" button.
+
+The plan is saved automatically to your browser's local storage.
+
+## Run
+
+Requires Node.js 18 or later.
+
+```powershell
+npm install
+npm run dev      # http://localhost:5173
+npm test         # unit tests for the allocator and the Azure rules
+npm run build    # production build in dist/
+```
+
+## Layout
+
+- `src/lib/ipv4.ts`: CIDR parsing, the first-fit aligned allocator, and free-space calculation
+- `src/lib/azure.ts`: Azure-specific limits and subnet presets
+- `src/lib/planner.ts`: the plan model; computes the allocation and the validation issues
+- `src/lib/defaults.ts`: the default plan and the hub and spoke templates
+- `src/components/`: the React UI
