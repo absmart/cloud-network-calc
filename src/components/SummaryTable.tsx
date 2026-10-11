@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { type CSSProperties, useState } from 'react';
 import { AZURE_RESERVED_IPS } from '../lib/azure';
 import { type Cidr, blockSize, endOf, formatCidr, formatIp } from '../lib/ipv4';
 import type { PlanResult } from '../lib/planner';
+import { regionColor } from './common';
 
 interface Row {
   key: string;
+  regionIndex: number;
   level: 'Region' | 'VNet' | 'Subnet';
   region: string;
   vnet: string;
@@ -14,15 +16,16 @@ interface Row {
 
 function flatten(result: PlanResult): Row[] {
   const rows: Row[] = [];
-  for (const region of result.regions) {
-    rows.push({ key: region.id, level: 'Region', region: region.name, vnet: '', name: region.name, cidr: region.cidr });
+  result.regions.forEach((region, regionIndex) => {
+    const base = { regionIndex, region: region.name };
+    rows.push({ ...base, key: region.id, level: 'Region', vnet: '', name: region.name, cidr: region.cidr });
     for (const vnet of [region.hub, ...region.spokes]) {
-      rows.push({ key: vnet.id, level: 'VNet', region: region.name, vnet: vnet.name, name: vnet.name, cidr: vnet.cidr });
+      rows.push({ ...base, key: vnet.id, level: 'VNet', vnet: vnet.name, name: vnet.name, cidr: vnet.cidr });
       for (const s of vnet.subnets) {
-        rows.push({ key: s.id, level: 'Subnet', region: region.name, vnet: vnet.name, name: s.name, cidr: s.cidr });
+        rows.push({ ...base, key: s.id, level: 'Subnet', vnet: vnet.name, name: s.name, cidr: s.cidr });
       }
     }
-  }
+  });
   return rows;
 }
 
@@ -83,7 +86,11 @@ export function SummaryTable({ result }: { result: PlanResult }) {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.key} className={`level-${r.level.toLowerCase()}`}>
+              <tr
+                key={r.key}
+                className={`level-${r.level.toLowerCase()}`}
+                style={{ '--region-color': regionColor(r.regionIndex) } as CSSProperties}
+              >
                 <td>{r.name}</td>
                 <td>
                   <code>{r.cidr ? formatCidr(r.cidr) : 'unallocated'}</code>

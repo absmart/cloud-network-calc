@@ -63,11 +63,18 @@ export function Issues({ issues }: { issues: Issue[] }) {
   );
 }
 
+/** One accent colour per region, readable with white text in light and dark themes. */
+const REGION_COLORS = ['#5b5fc7', '#0f7b6c', '#c4651c', '#b4009e', '#2e7d32', '#a4262c', '#0f6cbd', '#8a6d00'];
+
+export const regionColor = (index: number) => REGION_COLORS[index % REGION_COLORS.length];
+
 export interface Segment {
   id: string;
   label: string;
   cidr: Cidr | null;
   tone: 'region' | 'hub' | 'spoke' | 'subnet' | 'special';
+  /** Overrides the tone's colour. */
+  color?: string;
 }
 
 export function AllocationBar({ parent, segments, free }: { parent: Cidr | null; segments: Segment[]; free: Cidr[] }) {
@@ -86,7 +93,7 @@ export function AllocationBar({ parent, segments, free }: { parent: Cidr | null;
             <div
               key={s.id}
               className={`seg seg-${s.tone}`}
-              style={{ left: `${left}%`, width: `${width}%` }}
+              style={{ left: `${left}%`, width: `${width}%`, background: s.color }}
               title={`${s.label}\n${formatCidr(s.cidr)}`}
             >
               <span>{s.label}</span>

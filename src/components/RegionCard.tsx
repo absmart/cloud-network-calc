@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { VWAN_HUB_RECOMMENDED_PREFIX } from '../lib/azure';
 import { SPOKE_TEMPLATES, type SpokeTemplate, makeHub, relocateRegion } from '../lib/defaults';
 import { findRegion, regionsByGeography } from '../lib/regions';
@@ -9,6 +10,7 @@ export function RegionCard(props: {
   spec: RegionSpec;
   result: RegionResult;
   minPrefix: number;
+  color: string;
   /** Locations taken by the plan's other regions → that region's name. */
   usedLocations: Map<string, string>;
   onChange: (spec: RegionSpec) => void;
@@ -33,63 +35,71 @@ export function RegionCard(props: {
   const paired = pairedLocation ? findRegion(pairedLocation) : undefined;
 
   return (
-    <article className="region" id={`region-${spec.id}`}>
-      <header className="row">
-        <input
-          className="region-name"
-          value={spec.name}
-          onChange={(e) => onChange({ ...spec, name: e.target.value })}
-        />
-        <label>
-          Location
-          <select value={spec.location} onChange={(e) => onChange(relocateRegion(spec, e.target.value))}>
-            {!findRegion(spec.location) && <option value={spec.location}>{spec.location}</option>}
-            {regionsByGeography().map(([geography, regions]) => (
-              <optgroup key={geography} label={geography}>
-                {regions.map((r) => {
-                  const usedBy = props.usedLocations.get(r.location);
-                  return (
-                    <option key={r.location} value={r.location} disabled={!!usedBy}>
-                      {r.displayName}
-                      {usedBy ? ` (used by ${usedBy})` : ''}
-                    </option>
-                  );
-                })}
-              </optgroup>
-            ))}
-          </select>
-        </label>
-        {paired && (
-          <span className="muted" title="Azure paired region, commonly used as the secondary ALZ region">
-            Pair: {paired.displayName}
-            {props.usedLocations.has(paired.location) ? ' ✓' : ''}
-          </span>
-        )}
-        <label>
-          Size
-          <PrefixSelect
-            value={spec.prefix}
-            min={props.minPrefix}
-            max={24}
-            disabled={!!spec.fixed?.trim()}
-            onChange={(prefix) => onChange({ ...spec, prefix })}
+    <article className="region" id={`region-${spec.id}`} style={{ '--region-color': props.color } as CSSProperties}>
+      <header className="region-banner">
+        <div className="row">
+          <span className="swatch" />
+          <input
+            className="region-name"
+            value={spec.name}
+            onChange={(e) => onChange({ ...spec, name: e.target.value })}
           />
-        </label>
-        <label>
-          Pin
-          <PinInput value={spec.fixed} onChange={(fixed) => onChange({ ...spec, fixed })} />
-        </label>
-        <label>
-          Topology
-          <select value={spec.topology} onChange={(e) => setTopology(e.target.value as Topology)}>
-            <option value="hub-spoke">Hub &amp; spoke</option>
-            <option value="vwan">Virtual WAN</option>
-          </select>
-        </label>
-        <CidrBadge cidr={result.cidr} />
-        <button className="icon" title="Remove region" onClick={props.onRemove}>
-          ✕
-        </button>
+          <CidrBadge cidr={result.cidr} />
+          <span className="region-meta">
+            {spec.hub.name} · {spec.spokes.length} spokes
+          </span>
+          <button className="icon" title="Remove region" onClick={props.onRemove}>
+            ✕
+          </button>
+        </div>
+        <div className="row">
+          <label>
+            Location
+            <select value={spec.location} onChange={(e) => onChange(relocateRegion(spec, e.target.value))}>
+              {!findRegion(spec.location) && <option value={spec.location}>{spec.location}</option>}
+              {regionsByGeography().map(([geography, regions]) => (
+                <optgroup key={geography} label={geography}>
+                  {regions.map((r) => {
+                    const usedBy = props.usedLocations.get(r.location);
+                    return (
+                      <option key={r.location} value={r.location} disabled={!!usedBy}>
+                        {r.displayName}
+                        {usedBy ? ` (used by ${usedBy})` : ''}
+                      </option>
+                    );
+                  })}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+          {paired && (
+            <span className="muted" title="Azure paired region, commonly used as the secondary ALZ region">
+              Pair: {paired.displayName}
+              {props.usedLocations.has(paired.location) ? ' ✓' : ''}
+            </span>
+          )}
+          <label>
+            Size
+            <PrefixSelect
+              value={spec.prefix}
+              min={props.minPrefix}
+              max={24}
+              disabled={!!spec.fixed?.trim()}
+              onChange={(prefix) => onChange({ ...spec, prefix })}
+            />
+          </label>
+          <label>
+            Pin
+            <PinInput value={spec.fixed} onChange={(fixed) => onChange({ ...spec, fixed })} />
+          </label>
+          <label>
+            Topology
+            <select value={spec.topology} onChange={(e) => setTopology(e.target.value as Topology)}>
+              <option value="hub-spoke">Hub &amp; spoke</option>
+              <option value="vwan">Virtual WAN</option>
+            </select>
+          </label>
+        </div>
       </header>
       <Issues issues={result.issues} />
 

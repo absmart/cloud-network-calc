@@ -1,10 +1,21 @@
 import { blockSize } from '../lib/ipv4';
 import type { PlanResult, PlanSpec } from '../lib/planner';
 import { regionDisplayName } from '../lib/regions';
-import { CidrBadge } from './common';
+import type { CSSProperties } from 'react';
+import { CidrBadge, regionColor } from './common';
 
-/** One row per region: its address range and its own hub. */
-export function RegionOverview({ plan, result }: { plan: PlanSpec; result: PlanResult }) {
+/** One row per region: its address range and its own hub. Click a row's name to open that region. */
+export function RegionOverview({
+  plan,
+  result,
+  selected,
+  onSelect,
+}: {
+  plan: PlanSpec;
+  result: PlanResult;
+  selected: string;
+  onSelect: (regionId: string) => void;
+}) {
   if (!plan.regions.length) return null;
   return (
     <section className="overview">
@@ -27,9 +38,16 @@ export function RegionOverview({ plan, result }: { plan: PlanSpec; result: PlanR
               const r = result.regions[i];
               const free = r.free.reduce((n, c) => n + blockSize(c.prefix), 0);
               return (
-                <tr key={spec.id}>
+                <tr
+                  key={spec.id}
+                  className={selected === spec.id ? 'selected' : ''}
+                  style={{ '--region-color': regionColor(i) } as CSSProperties}
+                >
                   <td>
-                    <a href={`#region-${spec.id}`}>{spec.name}</a>
+                    <button className="link" onClick={() => onSelect(spec.id)}>
+                      <span className="swatch" />
+                      {spec.name}
+                    </button>
                   </td>
                   <td>{regionDisplayName(spec.location)}</td>
                   <td>

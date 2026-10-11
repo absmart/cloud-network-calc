@@ -193,18 +193,109 @@ label {
 
 /* Cards */
 
-.region {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--region);
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 20px;
+/* Regions: each has its own accent colour (--region-color). */
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--region-color, var(--region));
+  flex: none;
+}
+
+.region-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.region-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border-bottom: 3px solid transparent;
+}
+
+.region-tabs button.active {
+  border-color: var(--region-color, var(--accent));
+  background: color-mix(in srgb, var(--region-color, var(--accent)) 14%, var(--surface));
+}
+
+.region-tabs .tab-name {
+  font-weight: 600;
+}
+
+.region-tabs code {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.region-tabs .all {
+  color: var(--muted);
+}
+
+.region-tabs .add {
+  color: var(--accent);
+  border-style: dashed;
+}
+
+.tab-issues {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.tab-issues.error {
+  background: var(--error);
+}
+
+.tab-issues.warning {
+  background: var(--warning);
 }
 
 .region {
-  /* Keep anchored regions clear of the sticky top bar. */
-  scroll-margin-top: 160px;
+  --region-color: var(--region);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 6px solid var(--region-color);
+  border-radius: 8px;
+  padding: 0 16px 12px;
+  margin-bottom: 40px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+}
+
+.region-banner {
+  margin: 0 -16px 8px;
+  padding: 10px 16px;
+  display: grid;
+  gap: 8px;
+  background: color-mix(in srgb, var(--region-color) 10%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--region-color) 35%, var(--border));
+}
+
+.region-banner .swatch {
+  width: 14px;
+  height: 14px;
+}
+
+.region-banner .cidr {
+  font-size: 15px;
+  font-weight: 600;
+  background: var(--region-color);
+  color: #fff;
+}
+
+.region-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin-right: auto;
 }
 
 .overview {
@@ -220,20 +311,40 @@ label {
   margin: 0 0 6px;
 }
 
-.overview a {
-  color: var(--accent);
-  font-weight: 600;
-  text-decoration: none;
+.overview tr td:first-child {
+  border-left: 4px solid var(--region-color);
 }
 
-.overview a:hover {
+.overview tr.selected td {
+  background: color-mix(in srgb, var(--region-color) 10%, var(--surface));
+}
+
+button.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+button.link:hover {
+  background: none;
   text-decoration: underline;
 }
 
 .region-name {
-  font-size: 16px;
-  font-weight: 600;
-  width: 160px;
+  font-size: 18px;
+  font-weight: 700;
+  width: 200px;
+  background: transparent;
+  border-color: transparent;
+}
+
+.region-name:hover {
+  border-color: var(--border);
 }
 
 .vnet {
@@ -553,9 +664,14 @@ td {
   padding: 4px 8px;
 }
 
+.summary tr td:first-child {
+  border-left: 4px solid var(--region-color);
+}
+
 .summary tr.level-region td {
   font-weight: 600;
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--region-color) 14%, var(--surface));
+  border-top: 12px solid var(--surface);
 }
 
 .summary tr.level-vnet td:first-child {

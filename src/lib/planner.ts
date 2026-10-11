@@ -265,15 +265,17 @@ function computeVnet(
   return { ...base, subnets, free: cidr ? freeBlocks(cidr, allocated(subnets)) : [] };
 }
 
-export function countIssues(result: PlanResult): { errors: number; warnings: number } {
-  const all: Issue[] = [...result.issues];
-  for (const region of result.regions) {
-    all.push(...region.issues);
-    for (const vnet of [region.hub, ...region.spokes]) {
-      all.push(...vnet.issues);
-      for (const subnet of vnet.subnets) all.push(...subnet.issues);
-    }
+function regionIssues(region: RegionResult): Issue[] {
+  const all = [...region.issues];
+  for (const vnet of [region.hub, ...region.spokes]) {
+    all.push(...vnet.issues);
+    for (const subnet of vnet.subnets) all.push(...subnet.issues);
   }
+  return all;
+}
+
+export function countIssues(result: PlanResult | RegionResult): { errors: number; warnings: number } {
+  const all = 'regions' in result ? [...result.issues, ...result.regions.flatMap(regionIssues)] : regionIssues(result);
   return {
     errors: all.filter((i) => i.level === 'error').length,
     warnings: all.filter((i) => i.level === 'warning').length,
