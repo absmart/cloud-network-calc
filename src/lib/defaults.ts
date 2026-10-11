@@ -49,13 +49,18 @@ export const SPOKE_TEMPLATES: Record<SpokeTemplate, { label: string; make: (loc:
 
 export function makeHub(location: string, topology: Topology): VnetSpec {
   if (topology === 'vwan') return vnet(`vhub-${location}`, 23, []);
-  return vnet(`vnet-hub-${location}`, 23, [
+  return vnet(`vnet-hub-${location}`, 22, [
     subnet('GatewaySubnet', 27),
     subnet('AzureFirewallSubnet', 26),
     subnet('AzureFirewallManagementSubnet', 26),
     subnet('AzureBastionSubnet', 26),
     subnet('snet-dns-inbound', 28),
     subnet('snet-dns-outbound', 28),
+    // Network virtual appliance (third-party firewall / router) interfaces.
+    subnet('snet-nva-outside', 24),
+    subnet('snet-nva-inside', 27),
+    subnet('snet-nva-ha', 29),
+    subnet('snet-nva-mgmt', 28),
   ]);
 }
 

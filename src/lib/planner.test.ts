@@ -16,12 +16,18 @@ describe('computePlan', () => {
     const [primary, secondary] = result.regions;
     expect(formatCidr(primary.cidr!)).toBe('10.0.0.0/16');
     expect(formatCidr(secondary.cidr!)).toBe('10.1.0.0/16');
-    expect(formatCidr(primary.hub.cidr!)).toBe('10.0.0.0/23');
+    expect(formatCidr(primary.hub.cidr!)).toBe('10.0.0.0/22');
     expect(primary.spokes.map((s) => formatCidr(s.cidr!))).toEqual([
-      '10.0.2.0/24',
-      '10.0.3.0/24',
-      '10.0.4.0/22',
-      '10.0.8.0/23',
+      '10.0.4.0/24',
+      '10.0.5.0/24',
+      '10.0.8.0/22',
+      '10.0.6.0/23',
+    ]);
+    expect(primary.hub.subnets.slice(-4).map((s) => `${s.name} ${formatCidr(s.cidr!)}`)).toEqual([
+      'snet-nva-outside 10.0.1.0/24',
+      'snet-nva-inside 10.0.2.0/27',
+      'snet-nva-ha 10.0.2.32/29',
+      'snet-nva-mgmt 10.0.2.48/28',
     ]);
     expect(result.free.map(formatCidr)).toEqual(['10.2.0.0/15', '10.4.0.0/14', '10.8.0.0/13']);
   });
@@ -35,7 +41,7 @@ describe('computePlan', () => {
       Array.from({ length: 16 }, (_, i) => `10.${i}.0.0/16`),
     );
     expect(result.regions.map((r) => formatCidr(r.hub.cidr!))).toEqual(
-      Array.from({ length: 16 }, (_, i) => `10.${i}.0.0/23`),
+      Array.from({ length: 16 }, (_, i) => `10.${i}.0.0/22`),
     );
     expect(new Set(plan.regions.map((r) => r.location)).size).toBe(16);
   });

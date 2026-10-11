@@ -40,23 +40,30 @@ describe('visual layout', () => {
       '10.0.0.64/26 AzureFirewallSubnet',
       '10.0.0.128/26 AzureFirewallManagementSubnet',
       '10.0.0.192/26 AzureBastionSubnet',
-      '10.0.1.0/24 -',
+      '10.0.1.0/24 snet-nva-outside',
+      '10.0.2.0/27 snet-nva-inside',
+      '10.0.2.32/29 snet-nva-ha',
+      '10.0.2.40/29 -',
+      '10.0.2.48/28 snet-nva-mgmt',
+      '10.0.2.64/26 -',
+      '10.0.2.128/25 -',
+      '10.0.3.0/24 -',
     ]);
   });
 
   it('divides free space, names a block, and joins it back', () => {
     const plan = defaultPlan();
     let { spec, result } = hubOf(plan);
-    setHub(plan, divide(spec, result, leafAt(plan, '10.0.1.0/24')));
-    expect(describeLeaves(plan).slice(-2)).toEqual(['10.0.1.0/25 -', '10.0.1.128/25 -']);
+    setHub(plan, divide(spec, result, leafAt(plan, '10.0.3.0/24')));
+    expect(describeLeaves(plan).slice(-2)).toEqual(['10.0.3.0/25 -', '10.0.3.128/25 -']);
 
     ({ spec, result } = hubOf(plan));
-    setHub(plan, assign(spec, result, leafAt(plan, '10.0.1.128/25'), 'snet-shared'));
-    expect(describeLeaves(plan).slice(-2)).toEqual(['10.0.1.0/25 -', '10.0.1.128/25 snet-shared']);
+    setHub(plan, assign(spec, result, leafAt(plan, '10.0.3.128/25'), 'snet-shared'));
+    expect(describeLeaves(plan).slice(-2)).toEqual(['10.0.3.0/25 -', '10.0.3.128/25 snet-shared']);
 
     ({ spec, result } = hubOf(plan));
-    setHub(plan, join(spec, result, vnetLeaves(spec, result), c('10.0.1.0/24')));
-    expect(describeLeaves(plan).at(-1)).toBe('10.0.1.0/24 snet-shared');
+    setHub(plan, join(spec, result, vnetLeaves(spec, result), c('10.0.3.0/24')));
+    expect(describeLeaves(plan).at(-1)).toBe('10.0.3.0/24 snet-shared');
   });
 
   it('refuses to join two subnets', () => {

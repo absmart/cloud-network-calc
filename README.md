@@ -10,7 +10,7 @@ A browser app for planning IP address space for Azure Landing Zone network desig
   - The coloured bars on the right are the parent blocks; click one to join everything under it.
   
   Positions are stored relative to the VNet, so the layout moves with it. **Auto-pack** throws the layout away and packs subnets first-fit again. The **List** tab keeps the size-based editor.
-- **Hub & spoke or Virtual WAN** per region. Hub-spoke hubs come with GatewaySubnet, AzureFirewallSubnet, AzureFirewallManagementSubnet, AzureBastionSubnet and DNS Private Resolver subnets. Virtual WAN hubs are checked against the /24 minimum (/23 recommended).
+- **Hub & spoke or Virtual WAN** per region. Hub-spoke hubs come with GatewaySubnet, AzureFirewallSubnet, AzureFirewallManagementSubnet, AzureBastionSubnet and DNS Private Resolver subnets, plus network virtual appliance subnets: outside /24, inside /27, HA /29 and management /28. Default hubs are a /22. Virtual WAN hubs are checked against the /24 minimum (/23 recommended).
 - **Spoke templates** for identity, management, corp and online landing zones.
 - **Azure validation:**
   - reserved subnet names and their minimum sizes
