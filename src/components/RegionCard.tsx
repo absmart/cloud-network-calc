@@ -1,8 +1,16 @@
 import type { CSSProperties } from 'react';
 import { VWAN_HUB_RECOMMENDED_PREFIX } from '../lib/azure';
-import { SPOKE_TEMPLATES, type SpokeTemplate, makeHub, relocateRegion } from '../lib/defaults';
+import {
+  SPOKE_TEMPLATES,
+  type SpokeTemplate,
+  isPlatformVnet,
+  makeHub,
+  platformLayoutOf,
+  relocateRegion,
+  setPlatformLayout,
+} from '../lib/defaults';
 import { findRegion, regionsByGeography } from '../lib/regions';
-import type { RegionResult, RegionSpec, Topology, VnetSpec } from '../lib/planner';
+import type { PlatformLayout, RegionResult, RegionSpec, Topology, VnetSpec } from '../lib/planner';
 import { AllocationBar, CidrBadge, Issues, PinInput, PrefixSelect } from './common';
 import { VnetCard } from './VnetCard';
 
@@ -46,7 +54,7 @@ export function RegionCard(props: {
           />
           <CidrBadge cidr={result.cidr} />
           <span className="region-meta">
-            {spec.hub.name} · {spec.spokes.length} spokes
+            {spec.hub.name} · {spec.spokes.length} spokes · platform {platformLayoutOf(spec)}
           </span>
           <button className="icon" title="Remove region" onClick={props.onRemove}>
             ✕
@@ -99,6 +107,16 @@ export function RegionCard(props: {
               <option value="vwan">Virtual WAN</option>
             </select>
           </label>
+          <label title="Separate identity, management and security VNets, or one shared platform VNet. Switching replaces the platform VNets; landing zones are kept.">
+            Platform networks
+            <select
+              value={platformLayoutOf(spec)}
+              onChange={(e) => onChange(setPlatformLayout(spec, e.target.value as PlatformLayout))}
+            >
+              <option value="separate">Separate: identity / management / security</option>
+              <option value="combined">Combined: one platform VNet</option>
+            </select>
+          </label>
         </div>
       </header>
       <Issues issues={result.issues} />
@@ -106,11 +124,11 @@ export function RegionCard(props: {
       <AllocationBar
         parent={result.cidr}
         free={result.free}
-        segments={vnetResults.map((v) => ({
+        segments={vnetResults.map((v, i) => ({
           id: v.id,
           label: v.name,
           cidr: v.cidr,
-          tone: v.kind === 'spoke' ? 'spoke' : 'hub',
+          tone: v.kind !== 'spoke' ? 'hub' : isPlatformVnet(spec.spokes[i - 1]) ? 'platform' : 'spoke',
         }))}
       />
 

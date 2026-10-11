@@ -3,7 +3,14 @@ import { AllocationBar, Issues, regionColor } from './components/common';
 import { RegionCard } from './components/RegionCard';
 import { SummaryTable } from './components/SummaryTable';
 import { RegionOverview } from './components/RegionOverview';
-import { REGION_PREFIX, defaultPlan, makeRegion, nextUnusedLocation } from './lib/defaults';
+import {
+  REGION_PREFIX,
+  defaultPlan,
+  makeRegion,
+  migratePlan,
+  nextUnusedLocation,
+  platformLayoutOf,
+} from './lib/defaults';
 import { formatCidr } from './lib/ipv4';
 import { type PlanSpec, type RegionSpec, computePlan, countIssues } from './lib/planner';
 
@@ -15,7 +22,7 @@ function loadPlan(): PlanSpec {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const plan = JSON.parse(raw);
-      if (plan?.version === 1) return plan;
+      if (plan?.version === 1) return migratePlan(plan);
     }
   } catch {
     // Fall through to the default plan.
@@ -46,9 +53,13 @@ export default function App() {
     setPlan({ ...plan, regions: plan.regions.map((r, i) => (i === index ? region : r)) });
 
   const addRegion = () => {
-    // New regions follow the last region's topology, each with its own hub.
-    const topology = plan.regions.at(-1)?.topology ?? 'hub-spoke';
-    const region = makeRegion(nextUnusedLocation(plan), topology);
+    // New regions follow the last region's topology and platform layout, each with its own hub.
+    const last = plan.regions.at(-1);
+    const region = makeRegion(
+      nextUnusedLocation(plan),
+      last?.topology ?? 'hub-spoke',
+      last ? platformLayoutOf(last) : 'separate',
+    );
     setPlan({ ...plan, regions: [...plan.regions, region] });
     setSelected(region.id);
   };

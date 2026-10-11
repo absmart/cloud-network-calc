@@ -2,11 +2,19 @@ import { useId, useState } from 'react';
 import { RESERVED_NAME_PRESETS, SMALLEST_SUBNET_PREFIX, SUBNET_PRESETS, presetForName } from '../lib/azure';
 import { newId } from '../lib/defaults';
 import { formatIp, endOf, blockSize } from '../lib/ipv4';
-import type { SubnetSpec, VnetResult, VnetSpec } from '../lib/planner';
+import type { SubnetSpec, VnetResult, VnetRole, VnetSpec } from '../lib/planner';
 import { AllocationBar, CidrBadge, Issues, PinInput, PrefixSelect } from './common';
 import { VisualSubnetEditor } from './VisualSubnetEditor';
 
 const KIND_LABEL = { hub: 'Hub VNet', 'virtual-hub': 'Virtual WAN hub', spoke: 'Spoke' } as const;
+
+const ROLE_LABEL: Record<VnetRole, string> = {
+  platform: 'Platform',
+  identity: 'Identity',
+  management: 'Management',
+  security: 'Security',
+  'landing-zone': 'Landing zone',
+};
 
 export function VnetCard(props: {
   spec: VnetSpec;
@@ -33,9 +41,11 @@ export function VnetCard(props: {
   };
 
   return (
-    <section className={`vnet vnet-${result.kind}`}>
+    <section className={`vnet vnet-${result.kind}${spec.role && spec.role !== 'landing-zone' ? ' vnet-platform' : ''}`}>
       <header className="row">
-        <span className="kind">{KIND_LABEL[result.kind]}</span>
+        <span className="kind">
+          {result.kind === 'spoke' ? ROLE_LABEL[spec.role ?? 'landing-zone'] : KIND_LABEL[result.kind]}
+        </span>
         <input className="name" value={spec.name} onChange={(e) => onChange({ ...spec, name: e.target.value })} />
         <PrefixSelect
           value={spec.prefix}

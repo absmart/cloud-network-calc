@@ -41,9 +41,17 @@ export interface Split {
   prefix: number;
 }
 
+/** What a spoke is for. Platform roles are swapped when the region's platform layout changes. */
+export type VnetRole = 'platform' | 'identity' | 'management' | 'security' | 'landing-zone';
+
+/** Platform landing zones as separate identity/management/security VNets, or one combined VNet. */
+export type PlatformLayout = 'separate' | 'combined';
+
 export interface VnetSpec {
   id: string;
   name: string;
+  /** Spokes only; missing means landing zone. */
+  role?: VnetRole;
   prefix: number;
   fixed?: string;
   subnets: SubnetSpec[];

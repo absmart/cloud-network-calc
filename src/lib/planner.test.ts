@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { defaultPlan, makeRegion, nextUnusedLocation, relocateRegion, subnet } from './defaults';
+import {
+  defaultPlan,
+  makeRegion,
+  migratePlan,
+  nextUnusedLocation,
+  platformLayoutOf,
+  relocateRegion,
+  setPlatformLayout,
+  subnet,
+} from './defaults';
 import { formatCidr } from './ipv4';
 import { computePlan, countIssues } from './planner';
 import { findRegion } from './regions';
@@ -17,11 +26,12 @@ describe('computePlan', () => {
     expect(formatCidr(primary.cidr!)).toBe('10.0.0.0/16');
     expect(formatCidr(secondary.cidr!)).toBe('10.1.0.0/16');
     expect(formatCidr(primary.hub.cidr!)).toBe('10.0.0.0/22');
-    expect(primary.spokes.map((s) => formatCidr(s.cidr!))).toEqual([
-      '10.0.4.0/24',
-      '10.0.5.0/24',
-      '10.0.8.0/22',
-      '10.0.6.0/23',
+    expect(primary.spokes.map((s) => `${s.name} ${formatCidr(s.cidr!)}`)).toEqual([
+      'vnet-identity-eastus2 10.0.4.0/24',
+      'vnet-management-eastus2 10.0.5.0/24',
+      'vnet-security-eastus2 10.0.6.0/24',
+      'vnet-corp-eastus2-001 10.0.8.0/22',
+      'vnet-online-eastus2-001 10.0.12.0/23',
     ]);
     expect(primary.hub.subnets.slice(0, 4).map((s) => `${s.name} ${formatCidr(s.cidr!)}`)).toEqual([
       'snet-nva-outside 10.0.0.0/24',
@@ -30,6 +40,48 @@ describe('computePlan', () => {
       'snet-nva-mgmt 10.0.1.64/27',
     ]);
     expect(result.free.map(formatCidr)).toEqual(['10.2.0.0/15', '10.4.0.0/14', '10.8.0.0/13']);
+  });
+
+  it('switches between separate and combined platform networks, keeping landing zones', () => {
+    const separate = makeRegion('eastus2', 'hub-spoke');
+    expect(platformLayoutOf(separate)).toBe('separate');
+
+    const combined = setPlatformLayout(separate, 'combined');
+    expect(platformLayoutOf(combined)).toBe('combined');
+    expect(combined.spokes.map((s) => s.name)).toEqual([
+      'vnet-platform-eastus2',
+      'vnet-corp-eastus2-001',
+      'vnet-online-eastus2-001',
+    ]);
+    expect(combined.spokes[0].subnets.map((s) => s.name)).toEqual(['snet-identity', 'snet-management', 'snet-security']);
+    expect(combined.spokes[1]).toBe(separate.spokes[3]);
+
+    const plan = defaultPlan();
+    plan.regions[0] = combined;
+    const region = computePlan(plan).regions[0];
+    expect(countIssues(region)).toEqual({ errors: 0, warnings: 0 });
+    expect(formatCidr(region.spokes[0].cidr!)).toBe('10.0.4.0/24');
+
+    expect(setPlatformLayout(combined, 'separate').spokes.map((s) => s.role)).toEqual([
+      'identity',
+      'management',
+      'security',
+      'landing-zone',
+      'landing-zone',
+    ]);
+  });
+
+  it('infers spoke roles for plans saved before roles existed', () => {
+    const plan = defaultPlan();
+    for (const s of plan.regions[0].spokes) delete s.role;
+    const migrated = migratePlan(plan);
+    expect(migrated.regions[0].spokes.map((s) => s.role)).toEqual([
+      'identity',
+      'management',
+      'security',
+      'landing-zone',
+      'landing-zone',
+    ]);
   });
 
   it('gives each added region its own /16 and its own hub', () => {

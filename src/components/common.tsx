@@ -72,7 +72,7 @@ export interface Segment {
   id: string;
   label: string;
   cidr: Cidr | null;
-  tone: 'region' | 'hub' | 'spoke' | 'subnet' | 'special';
+  tone: 'region' | 'hub' | 'platform' | 'spoke' | 'subnet' | 'special';
   /** Overrides the tone's colour. */
   color?: string;
 }

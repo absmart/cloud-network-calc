@@ -9,6 +9,7 @@
   --region: #5b5fc7;
   --hub: #0f6cbd;
   --spoke: #2e8b57;
+  --platform: #8764b8;
   --subnet: #4f8fd6;
   --special: #c4651c;
   --error: #c50f1f;
@@ -31,6 +32,7 @@
     --region: #8b8ff0;
     --hub: #3b8de0;
     --spoke: #3fae6f;
+    --platform: #a586d6;
     --subnet: #5e9ee6;
     --special: #e08a45;
     --error: #ff8a95;
@@ -361,6 +363,10 @@ button.link:hover {
   border-left-color: var(--hub);
 }
 
+.vnet-platform {
+  border-left-color: var(--platform);
+}
+
 .kind {
   font-size: 11px;
   font-weight: 600;
@@ -483,6 +489,10 @@ button.link:hover {
 
 .seg-hub {
   background: var(--hub);
+}
+
+.seg-platform {
+  background: var(--platform);
 }
 
 .seg-spoke {
