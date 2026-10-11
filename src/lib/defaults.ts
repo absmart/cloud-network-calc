@@ -9,6 +9,9 @@ export const newId = () => Math.random().toString(36).slice(2, 10);
 
 export const subnet = (name: string, prefix: number): SubnetSpec => ({ id: newId(), name, prefix });
 
+/** A subnet at a fixed offset from the start of its VNet. */
+const placed = (name: string, prefix: number, offset: number): SubnetSpec => ({ ...subnet(name, prefix), offset });
+
 const vnet = (name: string, prefix: number, subnets: SubnetSpec[]): VnetSpec => ({
   id: newId(),
   name,
@@ -49,18 +52,23 @@ export const SPOKE_TEMPLATES: Record<SpokeTemplate, { label: string; make: (loc:
 
 export function makeHub(location: string, topology: Topology): VnetSpec {
   if (topology === 'vwan') return vnet(`vhub-${location}`, 23, []);
+  // Fixed positions within the /22 hub (offsets from its base, so they follow
+  // the hub if it moves). The NVA owns the first two /24s; Azure services
+  // start in the third.
   return vnet(`vnet-hub-${location}`, 22, [
-    subnet('GatewaySubnet', 27),
-    subnet('AzureFirewallSubnet', 26),
-    subnet('AzureFirewallManagementSubnet', 26),
-    subnet('AzureBastionSubnet', 26),
-    subnet('snet-dns-inbound', 28),
-    subnet('snet-dns-outbound', 28),
-    // Network virtual appliance (third-party firewall / router) interfaces.
-    subnet('snet-nva-outside', 24),
-    subnet('snet-nva-inside', 27),
-    subnet('snet-nva-ha', 29),
-    subnet('snet-nva-mgmt', 28),
+    // x.x.0.0/24: NVA outside (untrusted) interfaces.
+    placed('snet-nva-outside', 24, 0),
+    // x.x.1.0/24: NVA inside, HA and management; the rest is NVA headroom.
+    placed('snet-nva-inside', 27, 256),
+    placed('snet-nva-ha', 29, 256 + 32),
+    placed('snet-nva-mgmt', 28, 256 + 48),
+    // x.x.2.0/24: Azure platform services.
+    placed('GatewaySubnet', 27, 512),
+    placed('snet-dns-inbound', 28, 512 + 32),
+    placed('snet-dns-outbound', 28, 512 + 48),
+    placed('AzureFirewallSubnet', 26, 512 + 64),
+    placed('AzureFirewallManagementSubnet', 26, 512 + 128),
+    placed('AzureBastionSubnet', 26, 512 + 192),
   ]);
 }
 

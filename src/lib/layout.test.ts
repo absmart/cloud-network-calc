@@ -34,19 +34,19 @@ const leafAt = (plan: PlanSpec, cidr: string) => {
 describe('visual layout', () => {
   it('derives leaves from subnets and free space', () => {
     expect(describeLeaves(defaultPlan())).toEqual([
-      '10.0.0.0/27 GatewaySubnet',
-      '10.0.0.32/28 snet-dns-inbound',
-      '10.0.0.48/28 snet-dns-outbound',
-      '10.0.0.64/26 AzureFirewallSubnet',
-      '10.0.0.128/26 AzureFirewallManagementSubnet',
-      '10.0.0.192/26 AzureBastionSubnet',
-      '10.0.1.0/24 snet-nva-outside',
-      '10.0.2.0/27 snet-nva-inside',
-      '10.0.2.32/29 snet-nva-ha',
-      '10.0.2.40/29 -',
-      '10.0.2.48/28 snet-nva-mgmt',
-      '10.0.2.64/26 -',
-      '10.0.2.128/25 -',
+      '10.0.0.0/24 snet-nva-outside',
+      '10.0.1.0/27 snet-nva-inside',
+      '10.0.1.32/29 snet-nva-ha',
+      '10.0.1.40/29 -',
+      '10.0.1.48/28 snet-nva-mgmt',
+      '10.0.1.64/26 -',
+      '10.0.1.128/25 -',
+      '10.0.2.0/27 GatewaySubnet',
+      '10.0.2.32/28 snet-dns-inbound',
+      '10.0.2.48/28 snet-dns-outbound',
+      '10.0.2.64/26 AzureFirewallSubnet',
+      '10.0.2.128/26 AzureFirewallManagementSubnet',
+      '10.0.2.192/26 AzureBastionSubnet',
       '10.0.3.0/24 -',
     ]);
   });
@@ -69,34 +69,34 @@ describe('visual layout', () => {
   it('refuses to join two subnets', () => {
     const plan = defaultPlan();
     const { spec, result } = hubOf(plan);
-    expect(join(spec, result, vnetLeaves(spec, result), c('10.0.0.0/25'))).toBe(spec);
+    expect(join(spec, result, vnetLeaves(spec, result), c('10.0.1.0/25'))).toBe(spec);
   });
 
   it('divides a subnet, keeping the first half and freeing the second', () => {
     const plan = defaultPlan();
     const { spec, result } = hubOf(plan);
-    setHub(plan, divide(spec, result, leafAt(plan, '10.0.0.192/26')));
-    expect(describeLeaves(plan)).toContain('10.0.0.192/27 AzureBastionSubnet');
-    expect(describeLeaves(plan)).toContain('10.0.0.224/27 -');
-    const bastion = computePlan(plan).regions[0].hub.subnets[3];
+    setHub(plan, divide(spec, result, leafAt(plan, '10.0.2.192/26')));
+    expect(describeLeaves(plan)).toContain('10.0.2.192/27 AzureBastionSubnet');
+    expect(describeLeaves(plan)).toContain('10.0.2.224/27 -');
+    const bastion = computePlan(plan).regions[0].hub.subnets.find((s) => s.name === 'AzureBastionSubnet')!;
     expect(bastion.issues[0].message).toMatch(/must be \/26 or larger/);
   });
 
   it('keeps the layout when a subnet is removed or the VNet moves', () => {
     const plan = defaultPlan();
     let { spec, result } = hubOf(plan);
-    setHub(plan, release(spec, result, 0)); // GatewaySubnet
-    expect(describeLeaves(plan)[0]).toBe('10.0.0.0/27 -');
+    setHub(plan, release(spec, result, 0)); // snet-nva-outside
+    expect(describeLeaves(plan)[0]).toBe('10.0.0.0/24 -');
 
     plan.root = '10.16.0.0/12';
-    expect(describeLeaves(plan)[1]).toBe('10.16.0.32/28 snet-dns-inbound');
+    expect(describeLeaves(plan)[1]).toBe('10.16.1.0/27 snet-nva-inside');
 
     ({ spec } = hubOf(plan));
     setHub(plan, autoPack(spec));
-    // Packed first-fit in list order again, now without the GatewaySubnet.
+    // Packed first-fit in list order again, now without the outside subnet.
     expect(describeLeaves(plan).slice(0, 2)).toEqual([
-      '10.16.0.0/26 AzureFirewallSubnet',
-      '10.16.0.64/26 AzureFirewallManagementSubnet',
+      '10.16.0.0/27 snet-nva-inside',
+      '10.16.0.32/29 snet-nva-ha',
     ]);
   });
 });
