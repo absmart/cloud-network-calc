@@ -178,6 +178,23 @@ describe('computePlan', () => {
     expect(relocateRegion(legacy, 'eastus2').hub.name).toBe('vnet-hub-eus2');
   });
 
+  it('moves a region, its hub, spokes and subnets when its CIDR is changed', () => {
+    const plan = defaultPlan();
+    plan.regions[0].fixed = '10.5.0.0/16';
+    const result = computePlan(plan);
+    expect(countIssues(result)).toEqual({ errors: 0, warnings: 0 });
+    const [moved, other] = result.regions;
+    expect(formatCidr(moved.cidr!)).toBe('10.5.0.0/16');
+    expect(formatCidr(moved.hub.cidr!)).toBe('10.5.0.0/22');
+    expect(formatCidr(moved.hub.subnets[0].cidr!)).toBe('10.5.0.0/24'); // nva-outside-snet
+    expect(formatCidr(moved.spokes[0].cidr!)).toBe('10.5.4.0/24');
+    // The other region takes the first free /16.
+    expect(formatCidr(other.cidr!)).toBe('10.0.0.0/16');
+
+    plan.regions[0].fixed = '10.20.0.0/16';
+    expect(computePlan(plan).regions[0].issues[0].message).toMatch(/outside 10\.0\.0\.0\/12/);
+  });
+
   it('reports an invalid pin and falls back to automatic allocation', () => {
     const plan = defaultPlan();
     plan.regions[1].fixed = '10.9.0.0/33';

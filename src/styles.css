@@ -393,11 +393,41 @@ label {
   height: 14px;
 }
 
-.region-banner .cidr {
-  font-size: 15px;
-  font-weight: 600;
-  background: var(--region-color);
+.region-cidr {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.region-cidr input {
+  width: 150px;
+  font: 600 15px 'Cascadia Code', Consolas, monospace;
   color: #fff;
+  background: var(--region-color);
+  border-color: transparent;
+}
+
+.region-cidr input::placeholder {
+  color: rgb(255 255 255 / 0.7);
+}
+
+.region-cidr input.pinned {
+  border-style: dashed;
+  border-color: #fff;
+}
+
+.chip {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+button.chip:hover {
+  color: var(--error);
+  border-color: var(--error);
 }
 
 .region-meta {

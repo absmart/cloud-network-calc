@@ -87,6 +87,24 @@ export function freeBlocks(parent: Cidr, used: Cidr[]): Cidr[] {
 }
 
 /**
+ * Aligned blocks of the given prefix inside `parent` that don't overlap
+ * `taken`, in address order, up to `limit` of them.
+ */
+export function availableBlocks(parent: Cidr, prefix: number, taken: Cidr[], limit = 256): Cidr[] {
+  const out: Cidr[] = [];
+  if (prefix < parent.prefix || prefix > 32) return out;
+  const step = blockSize(prefix);
+  for (let base = parent.base; base + step <= endOf(parent) && out.length < limit; base += step) {
+    const candidate = { base, prefix };
+    const clash = taken.find((t) => overlaps(t, candidate));
+    if (!clash) out.push(candidate);
+    // Skip straight past a large taken block.
+    else if (endOf(clash) > base + step) base = Math.ceil(endOf(clash) / step) * step - step;
+  }
+  return out;
+}
+
+/**
  * Place child blocks inside `parent`. Pinned (`fixed`) requests are placed
  * first; the rest go first-fit in request order on their natural alignment,
  * so appending a new request never moves the existing ones.

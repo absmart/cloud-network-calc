@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocate, formatCidr, formatIp, freeBlocks, parseCidr, parseIp, rangeToCidrs } from './ipv4';
+import { allocate, availableBlocks, formatCidr, formatIp, freeBlocks, parseCidr, parseIp, rangeToCidrs } from './ipv4';
 
 const c = (s: string) => {
   const r = parseCidr(s);
@@ -60,6 +60,28 @@ describe('allocate', () => {
     expect(out[2]).toMatch(/No room/);
     expect(out[3]).toMatch(/larger than its parent/);
     expect(out[4]).toMatch(/outside/);
+  });
+});
+
+describe('available blocks', () => {
+  it('lists aligned blocks of a size that avoid taken ranges', () => {
+    const taken = [c('10.0.0.0/16'), c('10.2.0.0/15')];
+    expect(availableBlocks(c('10.0.0.0/13'), 16, taken).map(formatCidr)).toEqual([
+      '10.1.0.0/16',
+      '10.4.0.0/16',
+      '10.5.0.0/16',
+      '10.6.0.0/16',
+      '10.7.0.0/16',
+    ]);
+  });
+
+  it('stops at the limit and rejects sizes larger than the parent', () => {
+    expect(availableBlocks(c('10.0.0.0/8'), 24, [], 3).map(formatCidr)).toEqual([
+      '10.0.0.0/24',
+      '10.0.1.0/24',
+      '10.0.2.0/24',
+    ]);
+    expect(availableBlocks(c('10.0.0.0/16'), 8, [])).toEqual([]);
   });
 });
 

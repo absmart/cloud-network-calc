@@ -158,6 +158,8 @@ export default function App() {
                   result={result.regions[i]}
                   color={regionColor(i)}
                   minPrefix={result.root?.prefix ?? 8}
+                  root={result.root}
+                  otherRegionCidrs={result.regions.flatMap((r, j) => (j !== i && r.cidr ? [r.cidr] : []))}
                   usedLocations={new Map(plan.regions.filter((_, j) => j !== i).map((r) => [r.location, r.name]))}
                   onChange={(r) => updateRegion(i, r)}
                   onRemove={() => setPlan({ ...plan, regions: plan.regions.filter((_, j) => j !== i) })}

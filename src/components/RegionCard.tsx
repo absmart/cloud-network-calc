@@ -9,15 +9,19 @@ import {
   relocateRegion,
   setPlatformLayout,
 } from '../lib/defaults';
+import { type Cidr, availableBlocks, blockSize, formatCidr, parseCidr } from '../lib/ipv4';
 import { findRegion, regionsByGeography } from '../lib/regions';
 import type { PlatformLayout, RegionResult, RegionSpec, Topology, VnetSpec } from '../lib/planner';
-import { AllocationBar, CidrBadge, Issues, PinInput, PrefixSelect } from './common';
+import { AllocationBar, Issues, PrefixSelect } from './common';
 import { VnetCard } from './VnetCard';
 
 export function RegionCard(props: {
   spec: RegionSpec;
   result: RegionResult;
   minPrefix: number;
+  /** The plan's root range, and the ranges the other regions occupy, for "Move to". */
+  root: Cidr | null;
+  otherRegionCidrs: Cidr[];
   color: string;
   /** Locations taken by the plan's other regions → that region's name. */
   usedLocations: Map<string, string>;
@@ -26,6 +30,24 @@ export function RegionCard(props: {
 }) {
   const { spec, result, onChange } = props;
   const regionPrefix = result.cidr?.prefix ?? spec.prefix;
+
+  // A pinned region (spec.fixed) sits at a CIDR the user chose; otherwise it
+  // takes the next free block of its size.
+  const pinned = !!spec.fixed?.trim();
+  const pin = pinned ? parseCidr(spec.fixed!) : null;
+  const currentPrefix = pin?.ok ? pin.cidr.prefix : spec.prefix;
+  const freeBlocks = props.root
+    ? availableBlocks(props.root, currentPrefix, props.otherRegionCidrs).filter(
+        (c) => !result.cidr || c.base !== result.cidr.base || c.prefix !== result.cidr.prefix,
+      )
+    : [];
+
+  /** Resize; a pinned region keeps its start address, aligned down to the new size. */
+  const setSize = (prefix: number) => {
+    if (!pin?.ok) return onChange({ ...spec, prefix });
+    const size = blockSize(prefix);
+    onChange({ ...spec, prefix, fixed: formatCidr({ base: pin.cidr.base - (pin.cidr.base % size), prefix }) });
+  };
 
   const setTopology = (topology: Topology) => {
     // Swap in a hub of the right shape. A virtual hub keeps the old hub's size
@@ -52,7 +74,25 @@ export function RegionCard(props: {
             value={spec.name}
             onChange={(e) => onChange({ ...spec, name: e.target.value })}
           />
-          <CidrBadge cidr={result.cidr} />
+          <span className="region-cidr">
+            <input
+              className={pinned ? 'pinned' : ''}
+              value={pinned ? spec.fixed : result.cidr ? formatCidr(result.cidr) : ''}
+              placeholder="auto"
+              aria-label="Region CIDR"
+              title="The region's address range. Type a CIDR to pin the region there; clear it to place it automatically."
+              onChange={(e) => onChange({ ...spec, fixed: e.target.value })}
+            />
+            {pinned ? (
+              <button className="chip" title="Stop pinning; place the region automatically" onClick={() => onChange({ ...spec, fixed: undefined })}>
+                pinned ✕
+              </button>
+            ) : (
+              <span className="chip auto" title="Placed automatically in the next free block">
+                auto
+              </span>
+            )}
+          </span>
           <span className="region-meta">
             {spec.hub.name} · {spec.spokes.length} spokes · platform {platformLayoutOf(spec)}
           </span>
@@ -88,17 +128,24 @@ export function RegionCard(props: {
           )}
           <label>
             Size
-            <PrefixSelect
-              value={spec.prefix}
-              min={props.minPrefix}
-              max={24}
-              disabled={!!spec.fixed?.trim()}
-              onChange={(prefix) => onChange({ ...spec, prefix })}
-            />
+            <PrefixSelect value={currentPrefix} min={props.minPrefix} max={24} onChange={setSize} />
           </label>
-          <label>
-            Pin
-            <PinInput value={spec.fixed} onChange={(fixed) => onChange({ ...spec, fixed })} />
+          <label title="Pin the region to a free block of its size in the root address space">
+            Move to
+            <select
+              value=""
+              disabled={freeBlocks.length === 0}
+              onChange={(e) => e.target.value && onChange({ ...spec, fixed: e.target.value, prefix: currentPrefix })}
+            >
+              <option value="">
+                {freeBlocks.length ? `${freeBlocks.length}${freeBlocks.length === 256 ? '+' : ''} free /${currentPrefix} blocks…` : `No free /${currentPrefix} blocks`}
+              </option>
+              {freeBlocks.map((c) => (
+                <option key={c.base} value={formatCidr(c)}>
+                  {formatCidr(c)}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Topology
