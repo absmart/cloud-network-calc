@@ -26,7 +26,16 @@ A browser app for planning IP address space for Azure Landing Zone network desig
   - non-private or forbidden root ranges
   - overlaps and overflow
 - **Table view** with first and last addresses, plus a "Copy as CSV" button.
-- **Export IaC** generates a Bicep (`alz-network.bicep`) or Terraform azurerm 4.x (`main.tf`) file from the current plan, ready to copy or download. Each template comes with an example variables file for the chosen environment: `alz-network.prd.bicepparam` or `prd.tfvars`. These set the resource tags and, for Terraform, the subscription, resource group name and location. Copy them for each environment (`dev.tfvars`, ...). It contains:
+- **Export IaC** generates two files for Bicep or for Terraform (azurerm 4.x), ready to copy or download:
+  - a **reusable template**, `alz-network.bicep` or `main.tf`. Every input is a typed parameter or variable, with no names, CIDRs or regions hard-coded, so the same template deploys any plan.
+  - a **variables file** for the chosen environment, `alz-network.prd.bicepparam` or `prd.tfvars`. It holds this plan's values:
+    - the resource group, location and subscription (Terraform)
+    - tags
+    - VNets and subnets
+    - peerings, with their forwarded-traffic and gateway-transit options
+    - the Virtual WAN, its hubs (with SKUs) and its hub connections
+  
+  Copy the variables file for each environment (`dev.tfvars`, ...). Together they contain:
   - every allocated VNet and subnet, with DNS resolver subnets delegated
   - for hub & spoke: hub↔spoke peerings both ways, plus hub-to-hub peerings between regions
   - for Virtual WAN: the vWAN, its hubs and its spoke connections

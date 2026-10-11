@@ -2,10 +2,13 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SPOKE_TEMPLATES, defaultPlan, makeRegion } from './defaults';
-import { buildIacModel, generateIac, generateIacFiles, toTerraform } from './iac';
-import { computePlan } from './planner';
+import { type IacFormat, buildIacModel, generateIacFiles, toBicepParams, toTfvars } from './iac';
+import type { NamingOptions } from './naming';
+import { type PlanSpec, computePlan } from './planner';
 
 const model = (plan = defaultPlan()) => buildIacModel(plan, computePlan(plan));
+const files = (format: IacFormat, plan: PlanSpec, naming?: NamingOptions) =>
+  generateIacFiles(format, plan, computePlan(plan), naming);
 
 const vwanPlan = () => {
   const plan = defaultPlan();
@@ -93,52 +96,71 @@ describe('IaC export', () => {
       'spoke-deveus202-vnet',
       'spoke-deveus203-vnet',
     ]);
-    const tf = toTerraform(m);
-    expect(tf).toContain('"hub-deveus202-vnet/identity-deveus202-peer" = {');
-    expect(tf).toContain('default = "contosonet-deveus202-rg"');
+    const tfvars = toTfvars(m);
+    expect(tfvars).toContain('"hub-deveus202-vnet/identity-deveus202-peer" = {');
+    expect(tfvars).toContain('resource_group_name     = "contosonet-deveus202-rg"');
+  });
+
+  it('keeps templates generic: the same template for any plan, values only in the variables file', () => {
+    const a = files('bicep', defaultPlan());
+    const b = files('bicep', vwanPlan(), { app: 'other', environment: 'dev', instance: '07' });
+    expect(a[0].content).toBe(b[0].content);
+    expect(files('terraform', defaultPlan())[0].content).toBe(files('terraform', vwanPlan())[0].content);
+
+    // No plan values in the templates...
+    for (const [template] of [a, files('terraform', defaultPlan())]) {
+      expect(template.content).not.toMatch(/10\.0\.|eastus2|prdeus2|GatewaySubnet/);
+    }
+    // ...every input is a parameter / variable.
+    for (const p of ['tags', 'vnets', 'peerings', 'virtualWan', 'virtualHubs', 'hubConnections']) {
+      expect(a[0].content).toMatch(new RegExp(`^param ${p} `, 'm'));
+    }
+    const tf = files('terraform', defaultPlan())[0].content;
+    for (const v of ['subscription_id', 'resource_group_name', 'resource_group_location', 'tags', 'vnets', 'peerings', 'virtual_wan', 'virtual_hubs', 'hub_connections']) {
+      expect(tf).toContain(`variable "${v}" {`);
+    }
+  });
+
+  it('puts the plan into the variables files', () => {
+    const [, params] = files('bicep', defaultPlan());
+    expect(params.content).toContain("using './alz-network.bicep'");
+    expect(params.content).toContain("name: 'hub-prdeus201-vnet'");
+    expect(params.content).toContain("delegation: 'Microsoft.Network/dnsResolvers'");
+    expect(params.content).toContain("remoteVnet: 'identity-prdeus201-vnet'");
+    expect(params.content).not.toContain('param virtualWan');
+
+    const [, tfvars] = files('terraform', defaultPlan());
+    expect(tfvars.content).toContain('"hub-prdeus201-vnet" = {');
+    expect(tfvars.content).toContain('"GatewaySubnet"');
+    expect(tfvars.content).toContain('remote_vnet             = "identity-prdeus201-vnet"');
+    expect(tfvars.content).not.toContain('virtual_wan');
+
+    const [, wanParams] = files('bicep', vwanPlan());
+    expect(wanParams.content).toContain("param virtualWan = {\n  name: 'network-prdeus201-vwan'");
+    expect(wanParams.content).toContain("virtualHub: 'hub-prdeus201-vhub'");
+    const [, wanVars] = files('terraform', vwanPlan());
+    expect(wanVars.content).toContain('virtual_hub = "hub-prdeus201-vhub"');
+  });
+
+  it('names the variables file after the environment', () => {
+    const naming = { app: 'network', environment: 'dev', instance: '01' };
+    expect(files('bicep', defaultPlan(), naming).map((f) => f.name)).toEqual(['alz-network.bicep', 'alz-network.dev.bicepparam']);
+    expect(files('terraform', defaultPlan(), naming).map((f) => f.name)).toEqual(['main.tf', 'dev.tfvars']);
+    expect(files('terraform', defaultPlan(), naming)[1].content).toContain('terraform apply -var-file=dev.tfvars');
   });
 
   it('lists what it leaves out', () => {
     const plan = defaultPlan();
     plan.root = '10.0.0.0/16';
-    const m = model(plan);
-    expect(m.omitted).toEqual(['region Central US']);
-    expect(generateIac('terraform', plan, computePlan(plan))).toContain('#   - region Central US');
+    expect(model(plan).omitted).toEqual(['region Central US']);
+    expect(files('terraform', plan)[1].content).toContain('#   - region Central US');
   });
 
   it('escapes names for each language', () => {
     const m = model();
     m.vnets[0].name = `it's a "\${name}"`;
-    expect(toTerraform(m)).toContain(`"it's a \\"$\${name}\\""`);
-    expect(generateIac('bicep', defaultPlan(), computePlan(defaultPlan()))).toContain("name: 'hub-prdeus201-vnet'");
-  });
-
-  it('only emits Virtual WAN resources when the plan uses Virtual WAN', () => {
-    const plain = generateIac('terraform', defaultPlan(), computePlan(defaultPlan()));
-    expect(plain).not.toContain('azurerm_virtual_wan');
-    const plan = vwanPlan();
-    const withWan = generateIac('bicep', plan, computePlan(plan));
-    expect(withWan).toContain("resource virtualWan 'Microsoft.Network/virtualWans@2024-05-01'");
-    expect(withWan).toContain('hubVirtualNetworkConnections');
-  });
-
-  it('pairs each template with an example variables file for the environment', () => {
-    const plan = defaultPlan();
-    const naming = { app: 'network', environment: 'dev', instance: '01' };
-    const [bicep, bicepParams] = generateIacFiles('bicep', plan, computePlan(plan), naming);
-    expect(bicep.name).toBe('alz-network.bicep');
-    expect(bicep.content).toContain('param tags object = {}');
-    expect(bicep.content).toContain('--parameters alz-network.dev.bicepparam');
-    expect(bicepParams.name).toBe('alz-network.dev.bicepparam');
-    expect(bicepParams.content).toContain("using './alz-network.bicep'");
-    expect(bicepParams.content).toContain("environment: 'dev'");
-
-    const [tf, tfvars] = generateIacFiles('terraform', plan, computePlan(plan), naming);
-    expect(tf.content).toContain('variable "tags"');
-    expect(tf.content).toContain('terraform apply -var-file=dev.tfvars');
-    expect(tfvars.name).toBe('dev.tfvars');
-    expect(tfvars.content).toContain('resource_group_name     = "network-deveus201-rg"');
-    expect(tfvars.content).toContain('environment = "dev"');
+    expect(toTfvars(m)).toContain(`"it's a \\"$\${name}\\""`);
+    expect(toBicepParams(m)).toContain(`'it\\'s a "\\\${name}"'`);
   });
 
   // Set IAC_OUT_DIR to write sample files for `az bicep build` / `terraform validate`.

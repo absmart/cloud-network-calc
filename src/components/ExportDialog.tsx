@@ -90,7 +90,9 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
         <p className="muted">
           Covers every region, VNet, subnet and peering in the current plan
           {props.plan.regions.some((r) => r.topology === 'vwan') ? ', plus the Virtual WAN and its hubs' : ''}.
-          Hub &amp; spoke hubs are peered with their spokes and with each other.
+          Hub &amp; spoke hubs are peered with their spokes and with each other. The template is generic, with every input a
+          parameter or variable; this plan's values go in the variables file, so the same template can be reused for other plans
+          and environments.
         </p>
         <div className="row naming">
           <span className="muted">
@@ -131,7 +133,7 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
               onClick={() => setFileIndex(i)}
             >
               {f.name}
-              <span className="muted">{i === 0 ? 'template' : 'example variables'}</span>
+              <span className="muted">{i === 0 ? 'reusable template' : 'values for this plan'}</span>
             </button>
           ))}
         </div>
