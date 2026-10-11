@@ -26,6 +26,12 @@ A browser app for planning IP address space for Azure Landing Zone network desig
   - non-private or forbidden root ranges
   - overlaps and overflow
 - **Table view** with first and last addresses, plus a "Copy as CSV" button.
+- **Export IaC** generates a Bicep (`alz-network.bicep`) or Terraform azurerm 4.x (`main.tf`) file from the current plan, ready to copy or download. It contains:
+  - every allocated VNet and subnet, with DNS resolver subnets delegated
+  - for hub & spoke: hub↔spoke peerings both ways, plus hub-to-hub peerings between regions
+  - for Virtual WAN: the vWAN, its hubs and its spoke connections
+  
+  Everything deploys into one resource group (default `rg-alz-network`). Anything the plan couldn't allocate is listed at the top of the file. To write sample files for `az bicep build` / `terraform validate`, run `IAC_OUT_DIR=<dir> npm test`.
 
 The plan is saved automatically to your browser's local storage.
 

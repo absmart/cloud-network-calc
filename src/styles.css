@@ -81,6 +81,69 @@ button:hover {
   background: var(--surface-2);
 }
 
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.primary:hover {
+  background: var(--accent);
+  filter: brightness(1.1);
+}
+
+/* Export dialog */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, 100%);
+  max-height: 100%;
+  padding: 16px 20px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
+}
+
+.dialog h2 {
+  margin: 0;
+  font-size: 16px;
+  margin-right: auto;
+}
+
+.dialog p {
+  margin: 8px 0 0;
+}
+
+.code {
+  flex: 1;
+  min-height: 200px;
+  overflow: auto;
+  margin: 12px 0 0;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font: 12.5px/1.5 'Cascadia Code', Consolas, monospace;
+  white-space: pre;
+}
+
+.dialog .footer {
+  justify-content: flex-end;
+}
+
 button.icon {
   border: none;
   background: transparent;

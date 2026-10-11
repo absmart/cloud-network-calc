@@ -1,5 +1,6 @@
 import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { AllocationBar, Issues, regionColor } from './components/common';
+import { ExportDialog } from './components/ExportDialog';
 import { RegionCard } from './components/RegionCard';
 import { SummaryTable } from './components/SummaryTable';
 import { RegionOverview } from './components/RegionOverview';
@@ -33,6 +34,7 @@ function loadPlan(): PlanSpec {
 export default function App() {
   const [plan, setPlan] = useState<PlanSpec>(loadPlan);
   const [view, setView] = useState<'design' | 'table'>('design');
+  const [exporting, setExporting] = useState(false);
   const result = useMemo(() => computePlan(plan), [plan]);
   const counts = countIssues(result);
 
@@ -92,6 +94,9 @@ export default function App() {
           <span className={`status ${counts.errors ? 'error' : counts.warnings ? 'warning' : 'ok'}`}>
             {counts.errors} errors · {counts.warnings} warnings
           </span>
+          <button className="primary" onClick={() => setExporting(true)}>
+            Export IaC
+          </button>
           <button onClick={reset}>Reset</button>
         </div>
         <Issues issues={result.issues} />
@@ -170,6 +175,7 @@ export default function App() {
           </>
         )}
       </main>
+      {exporting && <ExportDialog plan={plan} result={result} onClose={() => setExporting(false)} />}
     </div>
   );
 }

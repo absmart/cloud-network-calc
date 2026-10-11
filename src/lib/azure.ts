@@ -26,6 +26,8 @@ export interface SubnetPreset {
   defaultPrefix: number;
   /** Belongs in the connectivity hub rather than in a spoke. */
   hubOnly: boolean;
+  /** Service the subnet must be delegated to, if any. */
+  delegation?: string;
   note: string;
 }
 
@@ -82,6 +84,7 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
     minPrefix: 28,
     defaultPrefix: 28,
     hubOnly: false,
+    delegation: 'Microsoft.Network/dnsResolvers',
     note: 'Delegated to Microsoft.Network/dnsResolvers. /28 minimum.',
   },
   {
@@ -91,6 +94,7 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
     minPrefix: 28,
     defaultPrefix: 28,
     hubOnly: false,
+    delegation: 'Microsoft.Network/dnsResolvers',
     note: 'Delegated to Microsoft.Network/dnsResolvers. /28 minimum.',
   },
   {
@@ -150,6 +154,11 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
 ];
 
 export const RESERVED_NAME_PRESETS = SUBNET_PRESETS.filter((p) => p.reservedName);
+
+/** Delegation required by a subnet, judged by its preset name. */
+export function delegationForName(name: string): string | undefined {
+  return SUBNET_PRESETS.find((p) => p.name.toLowerCase() === name.trim().toLowerCase())?.delegation;
+}
 
 export function presetForName(name: string): SubnetPreset | undefined {
   return RESERVED_NAME_PRESETS.find((p) => p.name.toLowerCase() === name.trim().toLowerCase());
