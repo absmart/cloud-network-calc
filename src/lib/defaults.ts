@@ -27,23 +27,23 @@ export type SpokeTemplate = 'identity' | 'management' | 'security' | 'platform' 
 export const SPOKE_TEMPLATES: Record<SpokeTemplate, { label: string; make: (loc: string) => VnetSpec }> = {
   identity: {
     label: 'Identity (platform)',
-    make: (loc) => vnet(`vnet-identity-${regionCode(loc)}`, 24, [subnet('snet-identity', 27)], 'identity'),
+    make: (loc) => vnet(`identity-${regionCode(loc)}-vnet`, 24, [subnet('identity-snet', 27)], 'identity'),
   },
   management: {
     label: 'Management (platform)',
-    make: (loc) => vnet(`vnet-management-${regionCode(loc)}`, 24, [subnet('snet-management', 26)], 'management'),
+    make: (loc) => vnet(`management-${regionCode(loc)}-vnet`, 24, [subnet('management-snet', 26)], 'management'),
   },
   security: {
     label: 'Security (platform)',
-    make: (loc) => vnet(`vnet-security-${regionCode(loc)}`, 24, [subnet('snet-security', 26)], 'security'),
+    make: (loc) => vnet(`security-${regionCode(loc)}-vnet`, 24, [subnet('security-snet', 26)], 'security'),
   },
   platform: {
     label: 'Platform: identity + management + security',
     make: (loc) =>
       vnet(
-        `vnet-platform-${regionCode(loc)}`,
+        `platform-${regionCode(loc)}-vnet`,
         24,
-        [subnet('snet-identity', 26), subnet('snet-management', 26), subnet('snet-security', 26)],
+        [subnet('identity-snet', 26), subnet('management-snet', 26), subnet('security-snet', 26)],
         'platform',
       ),
   },
@@ -51,20 +51,20 @@ export const SPOKE_TEMPLATES: Record<SpokeTemplate, { label: string; make: (loc:
     label: 'Corp landing zone',
     make: (loc) =>
       vnet(
-        `vnet-corp-${regionCode(loc)}-001`,
+        `corp-${regionCode(loc)}-001-vnet`,
         22,
-        [subnet('snet-app', 24), subnet('snet-data', 24), subnet('snet-pe', 26)],
+        [subnet('app-snet', 24), subnet('data-snet', 24), subnet('pe-snet', 26)],
         'landing-zone',
       ),
   },
   online: {
     label: 'Online landing zone',
     make: (loc) =>
-      vnet(`vnet-online-${regionCode(loc)}-001`, 23, [subnet('snet-appgw', 24), subnet('snet-web', 25)], 'landing-zone'),
+      vnet(`online-${regionCode(loc)}-001-vnet`, 23, [subnet('appgw-snet', 24), subnet('web-snet', 25)], 'landing-zone'),
   },
   empty: {
     label: 'Empty spoke',
-    make: (loc) => vnet(`vnet-spoke-${regionCode(loc)}`, 24, [], 'landing-zone'),
+    make: (loc) => vnet(`spoke-${regionCode(loc)}-vnet`, 24, [], 'landing-zone'),
   },
 };
 
@@ -94,26 +94,26 @@ export function migratePlan(plan: PlanSpec): PlanSpec {
   const infer = (v: VnetSpec): VnetSpec =>
     v.role
       ? v
-      : { ...v, role: (v.name.match(/^vnet-(identity|management|security|platform)-/)?.[1] as VnetRole) ?? 'landing-zone' };
+      : { ...v, role: (v.name.match(/^(?:vnet-)?(identity|management|security|platform)-/)?.[1] as VnetRole) ?? 'landing-zone' };
   return { ...plan, regions: plan.regions.map((r) => ({ ...r, spokes: r.spokes.map(infer) })) };
 }
 
 export function makeHub(location: string, topology: Topology): VnetSpec {
-  if (topology === 'vwan') return vnet(`vhub-${regionCode(location)}`, 23, []);
+  if (topology === 'vwan') return vnet(`hub-${regionCode(location)}-vhub`, 23, []);
   // Fixed positions within the /22 hub (offsets from its base, so they follow
   // the hub if it moves). The NVA owns the first two /24s; Azure services
   // start in the third.
-  return vnet(`vnet-hub-${regionCode(location)}`, 22, [
+  return vnet(`hub-${regionCode(location)}-vnet`, 22, [
     // x.x.0.0/24: NVA outside (untrusted) interfaces.
-    placed('snet-nva-outside', 24, 0),
+    placed('nva-outside-snet', 24, 0),
     // x.x.1.0/24: NVA inside, HA and management; the rest is NVA headroom.
-    placed('snet-nva-inside', 27, 256),
-    placed('snet-nva-ha', 27, 256 + 32),
-    placed('snet-nva-mgmt', 27, 256 + 64),
+    placed('nva-inside-snet', 27, 256),
+    placed('nva-ha-snet', 27, 256 + 32),
+    placed('nva-mgmt-snet', 27, 256 + 64),
     // x.x.2.0/24: Azure platform services.
     placed('GatewaySubnet', 27, 512),
-    placed('snet-dns-inbound', 28, 512 + 32),
-    placed('snet-dns-outbound', 28, 512 + 48),
+    placed('dns-inbound-snet', 28, 512 + 32),
+    placed('dns-outbound-snet', 28, 512 + 48),
     placed('AzureFirewallSubnet', 26, 512 + 64),
     placed('AzureFirewallManagementSubnet', 26, 512 + 128),
     placed('AzureBastionSubnet', 26, 512 + 192),

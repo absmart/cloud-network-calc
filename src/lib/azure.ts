@@ -79,7 +79,7 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
   },
   {
     label: 'DNS Private Resolver (inbound)',
-    name: 'snet-dns-inbound',
+    name: 'dns-inbound-snet',
     reservedName: false,
     minPrefix: 28,
     defaultPrefix: 28,
@@ -89,7 +89,7 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
   },
   {
     label: 'DNS Private Resolver (outbound)',
-    name: 'snet-dns-outbound',
+    name: 'dns-outbound-snet',
     reservedName: false,
     minPrefix: 28,
     defaultPrefix: 28,
@@ -99,7 +99,7 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
   },
   {
     label: 'NVA outside (untrusted)',
-    name: 'snet-nva-outside',
+    name: 'nva-outside-snet',
     reservedName: false,
     minPrefix: 29,
     defaultPrefix: 24,
@@ -108,7 +108,7 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
   },
   {
     label: 'NVA inside (trusted)',
-    name: 'snet-nva-inside',
+    name: 'nva-inside-snet',
     reservedName: false,
     minPrefix: 29,
     defaultPrefix: 27,
@@ -117,7 +117,7 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
   },
   {
     label: 'NVA HA',
-    name: 'snet-nva-ha',
+    name: 'nva-ha-snet',
     reservedName: false,
     minPrefix: 29,
     defaultPrefix: 27,
@@ -126,7 +126,7 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
   },
   {
     label: 'NVA management',
-    name: 'snet-nva-mgmt',
+    name: 'nva-mgmt-snet',
     reservedName: false,
     minPrefix: 29,
     defaultPrefix: 27,
@@ -135,7 +135,7 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
   },
   {
     label: 'Application Gateway v2',
-    name: 'snet-appgw',
+    name: 'appgw-snet',
     reservedName: false,
     minPrefix: 26,
     defaultPrefix: 24,
@@ -144,7 +144,7 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
   },
   {
     label: 'Private endpoints',
-    name: 'snet-pe',
+    name: 'pe-snet',
     reservedName: false,
     minPrefix: 29,
     defaultPrefix: 26,
@@ -155,9 +155,17 @@ export const SUBNET_PRESETS: SubnetPreset[] = [
 
 export const RESERVED_NAME_PRESETS = SUBNET_PRESETS.filter((p) => p.reservedName);
 
-/** Delegation required by a subnet, judged by its preset name. */
+/** A subnet name without its "-snet" suffix (or the "snet-" prefix older plans used). */
+const subnetCore = (name: string) =>
+  name
+    .trim()
+    .toLowerCase()
+    .replace(/^snet-/, '')
+    .replace(/-snet$/, '');
+
+/** Delegation required by a subnet, judged by its preset name (dns-inbound-snet, or snet-dns-inbound). */
 export function delegationForName(name: string): string | undefined {
-  return SUBNET_PRESETS.find((p) => p.name.toLowerCase() === name.trim().toLowerCase())?.delegation;
+  return SUBNET_PRESETS.find((p) => subnetCore(p.name) === subnetCore(name))?.delegation;
 }
 
 export function presetForName(name: string): SubnetPreset | undefined {

@@ -47,7 +47,7 @@ describe('IaC export', () => {
       'identity-prdeus201-vnet',
       'management-prdeus201-vnet',
       'security-prdeus201-vnet',
-      'corp-prdeus2001-vnet', // keeps the 001 from vnet-corp-eus2-001
+      'corp-prdeus2001-vnet', // keeps the 001 from corp-eus2-001-vnet
       'online-prdeus2001-vnet',
       'hub-prdcus01-vnet',
       'identity-prdcus01-vnet',
@@ -65,10 +65,22 @@ describe('IaC export', () => {
     ]);
     expect(m.vnets[1].subnets[0].name).toBe('identity-prdeus201-snet');
 
-    // Plans saved with full location names (vnet-corp-eastus2-001) export the same names.
+    // Plans saved with older prefixed names (vnet-corp-eastus2-001, snet-dns-inbound)
+    // export the same names, and keep the DNS resolver delegation.
     const legacy = defaultPlan();
-    for (const v of [legacy.regions[0].hub, ...legacy.regions[0].spokes]) v.name = v.name.replace('-eus2', '-eastus2');
-    expect(model(legacy).vnets.map((v) => v.name)).toEqual(m.vnets.map((v) => v.name));
+    for (const region of legacy.regions) {
+      for (const v of [region.hub, ...region.spokes]) {
+        v.name = `vnet-${v.name.replace(/-vnet$/, '').replace(/-(eus2|cus)\b/, (_, c) => (c === 'eus2' ? '-eastus2' : '-centralus'))}`;
+        for (const s of v.subnets) if (s.name.endsWith('-snet')) s.name = `snet-${s.name.replace(/-snet$/, '')}`;
+      }
+    }
+    expect(legacy.regions[0].spokes[3].name).toBe('vnet-corp-eastus2-001');
+    const legacyModel = model(legacy);
+    expect(legacyModel.vnets.map((v) => v.name)).toEqual(m.vnets.map((v) => v.name));
+    expect(legacyModel.vnets[0].subnets.map((s) => s.name)).toEqual(m.vnets[0].subnets.map((s) => s.name));
+    expect(legacyModel.vnets[0].subnets.find((s) => s.name === 'dnsinbound-prdeus201-snet')!.delegation).toBe(
+      'Microsoft.Network/dnsResolvers',
+    );
   });
 
   it('uses the chosen app, environment and instance, and numbers repeats', () => {

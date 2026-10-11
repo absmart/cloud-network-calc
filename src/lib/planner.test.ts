@@ -17,8 +17,8 @@ describe('computePlan', () => {
   it('lays out the default plan without issues', () => {
     const plan = defaultPlan();
     expect(plan.regions.map((r) => [r.name, r.hub.name])).toEqual([
-      ['East US 2', 'vnet-hub-eus2'],
-      ['Central US', 'vnet-hub-cus'],
+      ['East US 2', 'hub-eus2-vnet'],
+      ['Central US', 'hub-cus-vnet'],
     ]);
     const result = computePlan(plan);
     expect(countIssues(result)).toEqual({ errors: 0, warnings: 0 });
@@ -27,17 +27,17 @@ describe('computePlan', () => {
     expect(formatCidr(secondary.cidr!)).toBe('10.1.0.0/16');
     expect(formatCidr(primary.hub.cidr!)).toBe('10.0.0.0/22');
     expect(primary.spokes.map((s) => `${s.name} ${formatCidr(s.cidr!)}`)).toEqual([
-      'vnet-identity-eus2 10.0.4.0/24',
-      'vnet-management-eus2 10.0.5.0/24',
-      'vnet-security-eus2 10.0.6.0/24',
-      'vnet-corp-eus2-001 10.0.8.0/22',
-      'vnet-online-eus2-001 10.0.12.0/23',
+      'identity-eus2-vnet 10.0.4.0/24',
+      'management-eus2-vnet 10.0.5.0/24',
+      'security-eus2-vnet 10.0.6.0/24',
+      'corp-eus2-001-vnet 10.0.8.0/22',
+      'online-eus2-001-vnet 10.0.12.0/23',
     ]);
     expect(primary.hub.subnets.slice(0, 4).map((s) => `${s.name} ${formatCidr(s.cidr!)}`)).toEqual([
-      'snet-nva-outside 10.0.0.0/24',
-      'snet-nva-inside 10.0.1.0/27',
-      'snet-nva-ha 10.0.1.32/27',
-      'snet-nva-mgmt 10.0.1.64/27',
+      'nva-outside-snet 10.0.0.0/24',
+      'nva-inside-snet 10.0.1.0/27',
+      'nva-ha-snet 10.0.1.32/27',
+      'nva-mgmt-snet 10.0.1.64/27',
     ]);
     expect(result.free.map(formatCidr)).toEqual(['10.2.0.0/15', '10.4.0.0/14', '10.8.0.0/13']);
   });
@@ -46,19 +46,19 @@ describe('computePlan', () => {
     const separate = makeRegion('eastus2', 'hub-spoke');
     expect(platformLayoutOf(separate)).toBe('separate');
     expect(separate.spokes.slice(0, 3).map((s) => s.subnets.map((x) => x.name))).toEqual([
-      ['snet-identity'],
-      ['snet-management'],
-      ['snet-security'],
+      ['identity-snet'],
+      ['management-snet'],
+      ['security-snet'],
     ]);
 
     const combined = setPlatformLayout(separate, 'combined');
     expect(platformLayoutOf(combined)).toBe('combined');
     expect(combined.spokes.map((s) => s.name)).toEqual([
-      'vnet-platform-eus2',
-      'vnet-corp-eus2-001',
-      'vnet-online-eus2-001',
+      'platform-eus2-vnet',
+      'corp-eus2-001-vnet',
+      'online-eus2-001-vnet',
     ]);
-    expect(combined.spokes[0].subnets.map((s) => s.name)).toEqual(['snet-identity', 'snet-management', 'snet-security']);
+    expect(combined.spokes[0].subnets.map((s) => s.name)).toEqual(['identity-snet', 'management-snet', 'security-snet']);
     expect(combined.spokes[1]).toBe(separate.spokes[3]);
 
     const plan = defaultPlan();
@@ -169,8 +169,8 @@ describe('computePlan', () => {
   it('renames a region and its VNets when it moves location', () => {
     const moved = relocateRegion(makeRegion('westeurope', 'hub-spoke'), 'swedencentral');
     expect(moved.name).toBe('Sweden Central');
-    expect(moved.hub.name).toBe('vnet-hub-sdc');
-    expect(moved.spokes.map((s) => s.name)).toContain('vnet-corp-sdc-001');
+    expect(moved.hub.name).toBe('hub-sdc-vnet');
+    expect(moved.spokes.map((s) => s.name)).toContain('corp-sdc-001-vnet');
 
     // Names saved before region codes (vnet-hub-westeurope) are renamed too.
     const legacy = makeRegion('westeurope', 'hub-spoke');

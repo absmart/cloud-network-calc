@@ -36,7 +36,7 @@ export function VnetCard(props: {
     const preset = SUBNET_PRESETS[Number(presetIndex)];
     const subnet: SubnetSpec = preset
       ? { id: newId(), name: preset.name, prefix: preset.defaultPrefix }
-      : { id: newId(), name: `snet-${spec.subnets.length + 1}`, prefix: 26 };
+      : { id: newId(), name: `subnet${spec.subnets.length + 1}-snet`, prefix: 26 };
     onChange({ ...spec, subnets: [...spec.subnets, subnet] });
   };
 

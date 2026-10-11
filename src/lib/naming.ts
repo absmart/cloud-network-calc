@@ -1,12 +1,12 @@
 // Region short codes (eastus2 → eus2), used in the planner's VNet names
-// (vnet-hub-eus2), and resource naming for exported IaC:
+// (hub-eus2-vnet), and resource naming for exported IaC:
 // <app>-<environment><region><int>-<resourcetype>, for example hub-prdeus201-vnet.
 
 export interface NamingOptions {
   /** <app> for shared resources: the resource group and the Virtual WAN. */
   app: string;
   environment: string;
-  /** Default <int>; a VNet whose name ends in a number (vnet-corp-eus2-001) keeps that number. */
+  /** Default <int>; a VNet whose name carries a number (corp-eus2-001-vnet) keeps that number. */
   instance: string;
 }
 
@@ -88,14 +88,17 @@ export function normalizeNaming(options: NamingOptions): NamingOptions {
 }
 
 /**
- * Split a planner name such as "vnet-corp-eus2-001" or "snet-nva-outside"
+ * Split a planner name such as "corp-eus2-001-vnet" or "nva-outside-snet"
  * into an <app> ("corp", "nvaoutside") and an optional instance ("001"),
- * dropping the resource-type prefix and the region (as a code, or as the
- * full location name used by older plans).
+ * dropping the resource-type suffix and the region (as a code, or as the
+ * full location name). Older plans' prefixed names ("vnet-corp-eastus2-001")
+ * parse the same way.
  */
 export function parsePlannerName(name: string, location: string): { app: string; instance?: string } {
+  const types = ['vnet', 'vhub', 'snet', 'vwan'];
   const tokens = name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-  if (['vnet', 'vhub', 'snet', 'vwan'].includes(tokens[0])) tokens.shift();
+  if (tokens.length > 1 && types.includes(tokens.at(-1)!)) tokens.pop();
+  else if (types.includes(tokens[0])) tokens.shift();
   const rest = tokens.filter((t) => t !== location && t !== regionCode(location));
   const instance = rest.length > 1 && /^\d+$/.test(rest.at(-1)!) ? rest.pop() : undefined;
   return { app: rest.join(''), instance };

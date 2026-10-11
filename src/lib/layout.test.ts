@@ -34,15 +34,15 @@ const leafAt = (plan: PlanSpec, cidr: string) => {
 describe('visual layout', () => {
   it('derives leaves from subnets and free space', () => {
     expect(describeLeaves(defaultPlan())).toEqual([
-      '10.0.0.0/24 snet-nva-outside',
-      '10.0.1.0/27 snet-nva-inside',
-      '10.0.1.32/27 snet-nva-ha',
-      '10.0.1.64/27 snet-nva-mgmt',
+      '10.0.0.0/24 nva-outside-snet',
+      '10.0.1.0/27 nva-inside-snet',
+      '10.0.1.32/27 nva-ha-snet',
+      '10.0.1.64/27 nva-mgmt-snet',
       '10.0.1.96/27 -',
       '10.0.1.128/25 -',
       '10.0.2.0/27 GatewaySubnet',
-      '10.0.2.32/28 snet-dns-inbound',
-      '10.0.2.48/28 snet-dns-outbound',
+      '10.0.2.32/28 dns-inbound-snet',
+      '10.0.2.48/28 dns-outbound-snet',
       '10.0.2.64/26 AzureFirewallSubnet',
       '10.0.2.128/26 AzureFirewallManagementSubnet',
       '10.0.2.192/26 AzureBastionSubnet',
@@ -57,12 +57,12 @@ describe('visual layout', () => {
     expect(describeLeaves(plan).slice(-2)).toEqual(['10.0.3.0/25 -', '10.0.3.128/25 -']);
 
     ({ spec, result } = hubOf(plan));
-    setHub(plan, assign(spec, result, leafAt(plan, '10.0.3.128/25'), 'snet-shared'));
-    expect(describeLeaves(plan).slice(-2)).toEqual(['10.0.3.0/25 -', '10.0.3.128/25 snet-shared']);
+    setHub(plan, assign(spec, result, leafAt(plan, '10.0.3.128/25'), 'shared-snet'));
+    expect(describeLeaves(plan).slice(-2)).toEqual(['10.0.3.0/25 -', '10.0.3.128/25 shared-snet']);
 
     ({ spec, result } = hubOf(plan));
     setHub(plan, join(spec, result, vnetLeaves(spec, result), c('10.0.3.0/24')));
-    expect(describeLeaves(plan).at(-1)).toBe('10.0.3.0/24 snet-shared');
+    expect(describeLeaves(plan).at(-1)).toBe('10.0.3.0/24 shared-snet');
   });
 
   it('refuses to join two subnets', () => {
@@ -84,18 +84,18 @@ describe('visual layout', () => {
   it('keeps the layout when a subnet is removed or the VNet moves', () => {
     const plan = defaultPlan();
     let { spec, result } = hubOf(plan);
-    setHub(plan, release(spec, result, 0)); // snet-nva-outside
+    setHub(plan, release(spec, result, 0)); // nva-outside-snet
     expect(describeLeaves(plan)[0]).toBe('10.0.0.0/24 -');
 
     plan.root = '10.16.0.0/12';
-    expect(describeLeaves(plan)[1]).toBe('10.16.1.0/27 snet-nva-inside');
+    expect(describeLeaves(plan)[1]).toBe('10.16.1.0/27 nva-inside-snet');
 
     ({ spec } = hubOf(plan));
     setHub(plan, autoPack(spec));
     // Packed first-fit in list order again, now without the outside subnet.
     expect(describeLeaves(plan).slice(0, 2)).toEqual([
-      '10.16.0.0/27 snet-nva-inside',
-      '10.16.0.32/27 snet-nva-ha',
+      '10.16.0.0/27 nva-inside-snet',
+      '10.16.0.32/27 nva-ha-snet',
     ]);
   });
 });
