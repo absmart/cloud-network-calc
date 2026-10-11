@@ -90,7 +90,7 @@ export function nextUnusedLocation(plan: PlanSpec): string {
   for (const r of existing) if (free(r?.paired)) return r!.paired!;
   const geography = existing.find(Boolean)?.geography;
   const candidates = AZURE_REGIONS.filter((r) => free(r.location));
-  return (candidates.find((r) => r.geography === geography) ?? candidates[0])?.location ?? 'westeurope';
+  return (candidates.find((r) => r.geography === geography) ?? candidates[0])?.location ?? 'eastus2';
 }
 
 /**
@@ -117,6 +117,7 @@ export function defaultPlan(): PlanSpec {
     name: 'Contoso landing zones',
     // A /12 has room for 16 regional /16s.
     root: '10.0.0.0/12',
-    regions: [makeRegion('westeurope', 'hub-spoke'), makeRegion('northeurope', 'hub-spoke')],
+    // Primary and secondary are an Azure region pair.
+    regions: [makeRegion('eastus2', 'hub-spoke'), makeRegion('centralus', 'hub-spoke')],
   };
 }

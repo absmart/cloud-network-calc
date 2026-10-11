@@ -6,7 +6,12 @@ import { findRegion } from './regions';
 
 describe('computePlan', () => {
   it('lays out the default plan without issues', () => {
-    const result = computePlan(defaultPlan());
+    const plan = defaultPlan();
+    expect(plan.regions.map((r) => [r.name, r.hub.name])).toEqual([
+      ['East US 2', 'vnet-hub-eastus2'],
+      ['Central US', 'vnet-hub-centralus'],
+    ]);
+    const result = computePlan(plan);
     expect(countIssues(result)).toEqual({ errors: 0, warnings: 0 });
     const [primary, secondary] = result.regions;
     expect(formatCidr(primary.cidr!)).toBe('10.0.0.0/16');
@@ -40,11 +45,10 @@ describe('computePlan', () => {
     plan.regions = [makeRegion('eastus', 'hub-spoke')];
     expect(nextUnusedLocation(plan)).toBe(findRegion('eastus')!.paired);
 
-    // West Europe and North Europe are each other's pair.
-    const europe = defaultPlan();
-    const next = nextUnusedLocation(europe);
-    expect(['westeurope', 'northeurope']).not.toContain(next);
-    expect(findRegion(next)!.geography).toBe('Europe');
+    // The defaults, East US 2 and Central US, are each other's pair.
+    const next = nextUnusedLocation(defaultPlan());
+    expect(['eastus2', 'centralus']).not.toContain(next);
+    expect(findRegion(next)!.geography).toBe('US');
   });
 
   it('suggests a wider root when regions no longer fit', () => {
@@ -58,7 +62,7 @@ describe('computePlan', () => {
 
   it('warns when two regions share a location', () => {
     const plan = defaultPlan();
-    plan.regions.push(makeRegion('westeurope', 'hub-spoke'));
+    plan.regions.push(makeRegion('eastus2', 'hub-spoke'));
     const result = computePlan(plan);
     expect(result.regions[2].issues[0].message).toMatch(/also uses location/);
   });
