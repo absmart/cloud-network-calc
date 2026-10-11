@@ -26,8 +26,8 @@ describe('computePlan', () => {
     expect(primary.hub.subnets.slice(0, 4).map((s) => `${s.name} ${formatCidr(s.cidr!)}`)).toEqual([
       'snet-nva-outside 10.0.0.0/24',
       'snet-nva-inside 10.0.1.0/27',
-      'snet-nva-ha 10.0.1.32/29',
-      'snet-nva-mgmt 10.0.1.48/28',
+      'snet-nva-ha 10.0.1.32/27',
+      'snet-nva-mgmt 10.0.1.64/27',
     ]);
     expect(result.free.map(formatCidr)).toEqual(['10.2.0.0/15', '10.4.0.0/14', '10.8.0.0/13']);
   });

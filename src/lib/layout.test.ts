@@ -36,10 +36,9 @@ describe('visual layout', () => {
     expect(describeLeaves(defaultPlan())).toEqual([
       '10.0.0.0/24 snet-nva-outside',
       '10.0.1.0/27 snet-nva-inside',
-      '10.0.1.32/29 snet-nva-ha',
-      '10.0.1.40/29 -',
-      '10.0.1.48/28 snet-nva-mgmt',
-      '10.0.1.64/26 -',
+      '10.0.1.32/27 snet-nva-ha',
+      '10.0.1.64/27 snet-nva-mgmt',
+      '10.0.1.96/27 -',
       '10.0.1.128/25 -',
       '10.0.2.0/27 GatewaySubnet',
       '10.0.2.32/28 snet-dns-inbound',
@@ -96,7 +95,7 @@ describe('visual layout', () => {
     // Packed first-fit in list order again, now without the outside subnet.
     expect(describeLeaves(plan).slice(0, 2)).toEqual([
       '10.16.0.0/27 snet-nva-inside',
-      '10.16.0.32/29 snet-nva-ha',
+      '10.16.0.32/27 snet-nva-ha',
     ]);
   });
 });

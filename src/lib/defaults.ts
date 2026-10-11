@@ -60,8 +60,8 @@ export function makeHub(location: string, topology: Topology): VnetSpec {
     placed('snet-nva-outside', 24, 0),
     // x.x.1.0/24: NVA inside, HA and management; the rest is NVA headroom.
     placed('snet-nva-inside', 27, 256),
-    placed('snet-nva-ha', 29, 256 + 32),
-    placed('snet-nva-mgmt', 28, 256 + 48),
+    placed('snet-nva-ha', 27, 256 + 32),
+    placed('snet-nva-mgmt', 27, 256 + 64),
     // x.x.2.0/24: Azure platform services.
     placed('GatewaySubnet', 27, 512),
     placed('snet-dns-inbound', 28, 512 + 32),
