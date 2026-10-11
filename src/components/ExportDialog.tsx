@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { IAC_FILE_NAME, type IacFormat, buildIacModel, generateIac } from '../lib/iac';
+import { type IacFile, type IacFormat, buildIacModel, generateIacFiles } from '../lib/iac';
 import { DEFAULT_NAMING, type NamingOptions } from '../lib/naming';
 import { type PlanResult, type PlanSpec, countIssues } from '../lib/planner';
 
@@ -21,10 +21,13 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
   const [format, setFormat] = useState<IacFormat>('bicep');
   const [naming, setNaming] = useState<NamingOptions>(loadNaming);
   const [copied, setCopied] = useState(false);
-  const code = useMemo(
-    () => generateIac(format, props.plan, props.result, naming),
+  // 0 = template, 1 = example variables file.
+  const [fileIndex, setFileIndex] = useState(0);
+  const files = useMemo(
+    () => generateIacFiles(format, props.plan, props.result, naming),
     [format, props.plan, props.result, naming],
   );
+  const file = files[fileIndex] ?? files[0];
   const example = useMemo(() => {
     const m = buildIacModel(props.plan, props.result, naming);
     return [m.vnets[0]?.name, m.vnets[0]?.subnets.find((s) => s.name.endsWith('-snet'))?.name, m.resourceGroup]
@@ -50,7 +53,7 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(code);
+      await navigator.clipboard.writeText(file.content);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -58,13 +61,14 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
     }
   };
 
-  const download = () => {
-    const url = URL.createObjectURL(new Blob([code], { type: 'text/plain' }));
+  const download = (f: IacFile) => {
+    const url = URL.createObjectURL(new Blob([f.content], { type: 'text/plain' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = IAC_FILE_NAME[format];
+    a.download = f.name;
     a.click();
-    URL.revokeObjectURL(url);
+    // Revoking straight away can cancel the download in some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (
@@ -117,11 +121,26 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
             </li>
           </ul>
         )}
-        <pre className="code">{code}</pre>
+        <div className="file-tabs" role="tablist">
+          {files.map((f, i) => (
+            <button
+              key={f.name}
+              role="tab"
+              aria-selected={file === f}
+              className={file === f ? 'active' : ''}
+              onClick={() => setFileIndex(i)}
+            >
+              {f.name}
+              <span className="muted">{i === 0 ? 'template' : 'example variables'}</span>
+            </button>
+          ))}
+        </div>
+        <pre className="code">{file.content}</pre>
         <div className="row footer">
           <button onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
-          <button className="primary" onClick={download}>
-            Download {IAC_FILE_NAME[format]}
+          <button onClick={() => download(file)}>Download {file.name}</button>
+          <button className="primary" onClick={() => files.forEach(download)}>
+            Download all ({files.length} files)
           </button>
         </div>
       </div>

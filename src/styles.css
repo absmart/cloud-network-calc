@@ -135,6 +135,41 @@ button.primary:hover {
   width: 90px;
 }
 
+.file-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-tabs button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 4px 4px 0 0;
+  background: transparent;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 13px;
+}
+
+.file-tabs button.active {
+  border-bottom-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.file-tabs .muted {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 11px;
+}
+
+.dialog .code {
+  margin-top: 0;
+  border-top-left-radius: 0;
+}
+
 .code {
   flex: 1;
   min-height: 200px;

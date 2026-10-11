@@ -21,6 +21,17 @@ export const IAC_FILE_NAME: Record<IacFormat, string> = {
   terraform: 'main.tf',
 };
 
+export interface IacFile {
+  name: string;
+  content: string;
+}
+
+/** Example variables file per environment: alz-network.prd.bicepparam / prd.tfvars. */
+export function variablesFileName(format: IacFormat, environment: string): string {
+  const env = environment || 'example';
+  return format === 'bicep' ? `alz-network.${env}.bicepparam` : `${env}.tfvars`;
+}
+
 interface IacSubnet {
   name: string;
   prefix: string;
@@ -38,6 +49,8 @@ interface IacVnet {
 
 interface IacModel {
   planName: string;
+  /** Normalized naming options, also used for the example variables files. */
+  naming: NamingOptions;
   primaryLocation: string;
   resourceGroup: string;
   vnets: IacVnet[];
@@ -57,6 +70,7 @@ export function buildIacModel(plan: PlanSpec, result: PlanResult, naming: Naming
   const firstVwan = plan.regions.find((r) => r.topology === 'vwan')?.location ?? primaryLocation;
   const model: IacModel = {
     planName: plan.name,
+    naming: opts,
     primaryLocation,
     resourceGroup: resourceName(nameBase(opts.app, opts, primaryLocation), 'rg'),
     vnets: [],
@@ -180,9 +194,13 @@ export function toBicep(model: IacModel): string {
       'Deploys every VNet, subnet, peering and Virtual WAN hub in the plan into one resource group:',
       '',
       `  az group create --name ${model.resourceGroup} --location ${model.primaryLocation}`,
-      `  az deployment group create --resource-group ${model.resourceGroup} --template-file ${IAC_FILE_NAME.bicep}`,
+      `  az deployment group create --resource-group ${model.resourceGroup} --parameters ${variablesFileName('bicep', model.naming.environment)}`,
     ]),
   );
+
+  out.push(`@description('Tags applied to every VNet, Virtual WAN and virtual hub.')
+param tags object = {}
+`);
 
   out.push('var vnets = [');
   for (const v of model.vnets) {
@@ -210,6 +228,7 @@ export function toBicep(model: IacModel): string {
   out.push(`resource virtualNetworks 'Microsoft.Network/virtualNetworks@2024-05-01' = [for v in vnets: {
   name: v.name
   location: v.location
+  tags: tags
   properties: {
     addressSpace: {
       addressPrefixes: [
@@ -264,6 +283,7 @@ resource peerings 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2024
     out.push(`resource virtualWan 'Microsoft.Network/virtualWans@2024-05-01' = {
   name: ${bq(model.virtualWan)}
   location: ${bq(model.virtualHubs[0].location)}
+  tags: tags
   properties: {
     type: 'Standard'
   }
@@ -281,6 +301,7 @@ resource peerings 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2024
     out.push(`resource hubs 'Microsoft.Network/virtualHubs@2024-05-01' = [for h in virtualHubs: {
   name: h.name
   location: h.location
+  tags: tags
   properties: {
     addressPrefix: h.addressPrefix
     virtualWan: {
@@ -346,7 +367,7 @@ export function toTerraform(model: IacModel): string {
       'Deploys every VNet, subnet, peering and Virtual WAN hub in the plan into one resource group:',
       '',
       '  terraform init',
-      '  terraform apply -var="subscription_id=<subscription id>"',
+      `  terraform apply -var-file=${variablesFileName('terraform', model.naming.environment)}`,
     ]),
   );
 
@@ -378,6 +399,12 @@ variable "resource_group_name" {
 variable "resource_group_location" {
   type    = string
   default = ${tq(model.primaryLocation)}
+}
+
+variable "tags" {
+  type        = map(string)
+  description = "Tags applied to the resource group, every VNet, the Virtual WAN and virtual hubs."
+  default     = {}
 }
 `);
 
@@ -441,6 +468,7 @@ variable "resource_group_location" {
   out.push(`resource "azurerm_resource_group" "network" {
   name     = var.resource_group_name
   location = var.resource_group_location
+  tags     = var.tags
 }
 
 resource "azurerm_virtual_network" "this" {
@@ -450,6 +478,7 @@ resource "azurerm_virtual_network" "this" {
   location            = each.value.location
   resource_group_name = azurerm_resource_group.network.name
   address_space       = each.value.address_space
+  tags                = var.tags
 }
 
 resource "azurerm_subnet" "this" {
@@ -489,6 +518,7 @@ resource "azurerm_virtual_network_peering" "this" {
   name                = ${tq(model.virtualWan)}
   location            = ${tq(model.virtualHubs[0].location)}
   resource_group_name = azurerm_resource_group.network.name
+  tags                = var.tags
 }
 
 resource "azurerm_virtual_hub" "this" {
@@ -499,6 +529,7 @@ resource "azurerm_virtual_hub" "this" {
   resource_group_name = azurerm_resource_group.network.name
   virtual_wan_id      = azurerm_virtual_wan.this.id
   address_prefix      = each.value.address_prefix
+  tags                = var.tags
 }
 
 resource "azurerm_virtual_hub_connection" "this" {
@@ -514,12 +545,78 @@ resource "azurerm_virtual_hub_connection" "this" {
   return out.join('\n');
 }
 
+// ------------------------------------------------------ Variables files
+
+/** Tag values known from the plan; the rest are suggestions left commented out. */
+const exampleTags = (model: IacModel) => ({
+  environment: model.naming.environment,
+  workload: model.naming.app,
+});
+
+export function toBicepParams(model: IacModel): string {
+  const tags = exampleTags(model);
+  return `// Example parameters for ${IAC_FILE_NAME.bicep} (${model.naming.environment} environment).
+// Copy per environment (alz-network.dev.bicepparam, ...) and deploy with:
+//
+//   az deployment group create --resource-group ${model.resourceGroup} --parameters ${variablesFileName('bicep', model.naming.environment)}
+
+using './${IAC_FILE_NAME.bicep}'
+
+param tags = {
+  environment: ${bq(tags.environment)}
+  workload: ${bq(tags.workload)}
+  // owner: 'network-team@contoso.com'
+  // costCenter: '12345'
+}
+`;
+}
+
+export function toTfvars(model: IacModel): string {
+  const tags = exampleTags(model);
+  return `# Example variables for ${IAC_FILE_NAME.terraform} (${model.naming.environment} environment).
+# Copy per environment (dev.tfvars, ...) and deploy with:
+#
+#   terraform apply -var-file=${variablesFileName('terraform', model.naming.environment)}
+
+# Replace with the subscription to deploy into (az account show --query id -o tsv).
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+resource_group_name     = ${tq(model.resourceGroup)}
+resource_group_location = ${tq(model.primaryLocation)}
+
+tags = {
+  environment = ${tq(tags.environment)}
+  workload    = ${tq(tags.workload)}
+  # owner      = "network-team@contoso.com"
+  # costCenter = "12345"
+}
+`;
+}
+
+/** The template followed by its example variables file. */
+export function generateIacFiles(
+  format: IacFormat,
+  plan: PlanSpec,
+  result: PlanResult,
+  naming: NamingOptions = DEFAULT_NAMING,
+): IacFile[] {
+  const model = buildIacModel(plan, result, naming);
+  return format === 'bicep'
+    ? [
+        { name: IAC_FILE_NAME.bicep, content: toBicep(model) },
+        { name: variablesFileName('bicep', model.naming.environment), content: toBicepParams(model) },
+      ]
+    : [
+        { name: IAC_FILE_NAME.terraform, content: toTerraform(model) },
+        { name: variablesFileName('terraform', model.naming.environment), content: toTfvars(model) },
+      ];
+}
+
 export function generateIac(
   format: IacFormat,
   plan: PlanSpec,
   result: PlanResult,
   naming: NamingOptions = DEFAULT_NAMING,
 ): string {
-  const model = buildIacModel(plan, result, naming);
-  return format === 'bicep' ? toBicep(model) : toTerraform(model);
+  return generateIacFiles(format, plan, result, naming)[0].content;
 }

@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SPOKE_TEMPLATES, defaultPlan, makeRegion } from './defaults';
-import { IAC_FILE_NAME, buildIacModel, generateIac, toTerraform } from './iac';
+import { buildIacModel, generateIac, generateIacFiles, toTerraform } from './iac';
 import { computePlan } from './planner';
 
 const model = (plan = defaultPlan()) => buildIacModel(plan, computePlan(plan));
@@ -105,6 +105,25 @@ describe('IaC export', () => {
     expect(withWan).toContain('hubVirtualNetworkConnections');
   });
 
+  it('pairs each template with an example variables file for the environment', () => {
+    const plan = defaultPlan();
+    const naming = { app: 'network', environment: 'dev', instance: '01' };
+    const [bicep, bicepParams] = generateIacFiles('bicep', plan, computePlan(plan), naming);
+    expect(bicep.name).toBe('alz-network.bicep');
+    expect(bicep.content).toContain('param tags object = {}');
+    expect(bicep.content).toContain('--parameters alz-network.dev.bicepparam');
+    expect(bicepParams.name).toBe('alz-network.dev.bicepparam');
+    expect(bicepParams.content).toContain("using './alz-network.bicep'");
+    expect(bicepParams.content).toContain("environment: 'dev'");
+
+    const [tf, tfvars] = generateIacFiles('terraform', plan, computePlan(plan), naming);
+    expect(tf.content).toContain('variable "tags"');
+    expect(tf.content).toContain('terraform apply -var-file=dev.tfvars');
+    expect(tfvars.name).toBe('dev.tfvars');
+    expect(tfvars.content).toContain('resource_group_name     = "network-deveus201-rg"');
+    expect(tfvars.content).toContain('environment = "dev"');
+  });
+
   // Set IAC_OUT_DIR to write sample files for `az bicep build` / `terraform validate`.
   it.runIf(!!process.env.IAC_OUT_DIR)('writes sample files', () => {
     for (const [name, plan] of [
@@ -114,7 +133,7 @@ describe('IaC export', () => {
       for (const format of ['bicep', 'terraform'] as const) {
         const dir = join(process.env.IAC_OUT_DIR!, name, format);
         mkdirSync(dir, { recursive: true });
-        writeFileSync(join(dir, IAC_FILE_NAME[format]), generateIac(format, plan, computePlan(plan)));
+        for (const file of generateIacFiles(format, plan, computePlan(plan))) writeFileSync(join(dir, file.name), file.content);
       }
     }
   });
