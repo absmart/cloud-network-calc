@@ -26,7 +26,7 @@ export type SpokeTemplate = 'identity' | 'management' | 'security' | 'platform' 
 export const SPOKE_TEMPLATES: Record<SpokeTemplate, { label: string; make: (loc: string) => VnetSpec }> = {
   identity: {
     label: 'Identity (platform)',
-    make: (loc) => vnet(`vnet-identity-${loc}`, 24, [subnet('snet-domain-controllers', 27)], 'identity'),
+    make: (loc) => vnet(`vnet-identity-${loc}`, 24, [subnet('snet-identity', 27)], 'identity'),
   },
   management: {
     label: 'Management (platform)',

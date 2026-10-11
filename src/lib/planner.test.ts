@@ -45,6 +45,11 @@ describe('computePlan', () => {
   it('switches between separate and combined platform networks, keeping landing zones', () => {
     const separate = makeRegion('eastus2', 'hub-spoke');
     expect(platformLayoutOf(separate)).toBe('separate');
+    expect(separate.spokes.slice(0, 3).map((s) => s.subnets.map((x) => x.name))).toEqual([
+      ['snet-identity'],
+      ['snet-management'],
+      ['snet-security'],
+    ]);
 
     const combined = setPlatformLayout(separate, 'combined');
     expect(platformLayoutOf(combined)).toBe('combined');
