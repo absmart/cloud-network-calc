@@ -3,7 +3,7 @@
 A browser app for planning IP address space for Azure Landing Zone network designs.
 
 - **Root address space → regions → VNets → subnets.** You set a size (prefix length) for each block and the app places it in the next free aligned slot. You can also pin any block to a specific CIDR for brownfield ranges.
-- **Multiple regions, each with a /16 and its own hub.** The default root `10.0.0.0/12` holds 16 regional /16s. "Add region" picks the next unused Azure location. A Regions overview table lists every region's range and hub range. If the root runs out of space, the app suggests the smallest wider root that fits. Changing a region's location renames its VNets to match.
+- **Multiple regions, each with a /16 and its own hub.** The default root `10.0.0.0/12` holds 16 regional /16s. Each /16 picks its Azure region from a dropdown grouped by geography. Regions already used by another /16 are greyed out, and each region shows its Azure paired region. "Add region" defaults to the pair of an existing region, then to another region in the same geography. The region list is a snapshot of what your subscription offers; refresh it with `npm run update-regions` (requires a logged-in Azure CLI). A Regions overview table lists every region's range and hub range. If the root runs out of space, the app suggests the smallest wider root that fits. Changing a region's location renames its VNets to match.
 - **Visual subnet editor** for each VNet, inspired by [visualsubnetcalc.com](https://visualsubnetcalc.com/). Every row is a block of the VNet's range:
   - **Divide** splits a row in half.
   - Typing a name turns a free block into a subnet.

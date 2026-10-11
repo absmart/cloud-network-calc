@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultPlan, makeRegion, nextUnusedLocation, relocateRegion, subnet } from './defaults';
 import { formatCidr } from './ipv4';
 import { computePlan, countIssues } from './planner';
+import { findRegion } from './regions';
 
 describe('computePlan', () => {
   it('lays out the default plan without issues', () => {
@@ -32,6 +33,18 @@ describe('computePlan', () => {
       Array.from({ length: 16 }, (_, i) => `10.${i}.0.0/23`),
     );
     expect(new Set(plan.regions.map((r) => r.location)).size).toBe(16);
+  });
+
+  it('picks the paired region next, then stays in the same geography', () => {
+    const plan = defaultPlan();
+    plan.regions = [makeRegion('eastus', 'hub-spoke')];
+    expect(nextUnusedLocation(plan)).toBe(findRegion('eastus')!.paired);
+
+    // West Europe and North Europe are each other's pair.
+    const europe = defaultPlan();
+    const next = nextUnusedLocation(europe);
+    expect(['westeurope', 'northeurope']).not.toContain(next);
+    expect(findRegion(next)!.geography).toBe('Europe');
   });
 
   it('suggests a wider root when regions no longer fit', () => {

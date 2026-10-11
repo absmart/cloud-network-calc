@@ -3,7 +3,7 @@
 // corp and online landing zone spokes.
 
 import type { PlanSpec, RegionSpec, SubnetSpec, Topology, VnetSpec } from './planner';
-import { AZURE_REGIONS, regionDisplayName } from './regions';
+import { AZURE_REGIONS, findRegion, regionDisplayName } from './regions';
 
 export const newId = () => Math.random().toString(36).slice(2, 10);
 
@@ -76,10 +76,21 @@ export function makeRegion(location: string, topology: Topology): RegionSpec {
   };
 }
 
-/** The first Azure region not already used by the plan. */
+/**
+ * A sensible location for the next region: the Azure pair of the most
+ * recent region whose pair is still free, else another region in the same
+ * geography, else any region not yet used by the plan.
+ */
 export function nextUnusedLocation(plan: PlanSpec): string {
   const used = new Set(plan.regions.map((r) => r.location));
-  return AZURE_REGIONS.find((r) => !used.has(r.location))?.location ?? 'westeurope';
+  const free = (location: string | null | undefined): location is string =>
+    !!location && !used.has(location) && !!findRegion(location);
+  const existing = [...plan.regions].reverse().map((r) => findRegion(r.location));
+
+  for (const r of existing) if (free(r?.paired)) return r!.paired!;
+  const geography = existing.find(Boolean)?.geography;
+  const candidates = AZURE_REGIONS.filter((r) => free(r.location));
+  return (candidates.find((r) => r.geography === geography) ?? candidates[0])?.location ?? 'westeurope';
 }
 
 /**

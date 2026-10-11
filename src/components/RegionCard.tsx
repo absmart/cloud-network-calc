@@ -1,6 +1,6 @@
 import { VWAN_HUB_RECOMMENDED_PREFIX } from '../lib/azure';
 import { SPOKE_TEMPLATES, type SpokeTemplate, makeHub, relocateRegion } from '../lib/defaults';
-import { AZURE_REGIONS } from '../lib/regions';
+import { findRegion, regionsByGeography } from '../lib/regions';
 import type { RegionResult, RegionSpec, Topology, VnetSpec } from '../lib/planner';
 import { AllocationBar, CidrBadge, Issues, PinInput, PrefixSelect } from './common';
 import { VnetCard } from './VnetCard';
@@ -9,6 +9,8 @@ export function RegionCard(props: {
   spec: RegionSpec;
   result: RegionResult;
   minPrefix: number;
+  /** Locations taken by the plan's other regions → that region's name. */
+  usedLocations: Map<string, string>;
   onChange: (spec: RegionSpec) => void;
   onRemove: () => void;
 }) {
@@ -27,6 +29,8 @@ export function RegionCard(props: {
     onChange({ ...spec, spokes: spec.spokes.map((s, i) => (i === index ? vnet : s)) });
 
   const vnetResults = [result.hub, ...result.spokes];
+  const pairedLocation = findRegion(spec.location)?.paired;
+  const paired = pairedLocation ? findRegion(pairedLocation) : undefined;
 
   return (
     <article className="region" id={`region-${spec.id}`}>
@@ -39,16 +43,28 @@ export function RegionCard(props: {
         <label>
           Location
           <select value={spec.location} onChange={(e) => onChange(relocateRegion(spec, e.target.value))}>
-            {!AZURE_REGIONS.some((r) => r.location === spec.location) && (
-              <option value={spec.location}>{spec.location}</option>
-            )}
-            {AZURE_REGIONS.map((r) => (
-              <option key={r.location} value={r.location}>
-                {r.displayName}
-              </option>
+            {!findRegion(spec.location) && <option value={spec.location}>{spec.location}</option>}
+            {regionsByGeography().map(([geography, regions]) => (
+              <optgroup key={geography} label={geography}>
+                {regions.map((r) => {
+                  const usedBy = props.usedLocations.get(r.location);
+                  return (
+                    <option key={r.location} value={r.location} disabled={!!usedBy}>
+                      {r.displayName}
+                      {usedBy ? ` (used by ${usedBy})` : ''}
+                    </option>
+                  );
+                })}
+              </optgroup>
             ))}
           </select>
         </label>
+        {paired && (
+          <span className="muted" title="Azure paired region, commonly used as the secondary ALZ region">
+            Pair: {paired.displayName}
+            {props.usedLocations.has(paired.location) ? ' ✓' : ''}
+          </span>
+        )}
         <label>
           Size
           <PrefixSelect
