@@ -17,8 +17,8 @@ describe('computePlan', () => {
   it('lays out the default plan without issues', () => {
     const plan = defaultPlan();
     expect(plan.regions.map((r) => [r.name, r.hub.name])).toEqual([
-      ['East US 2', 'vnet-hub-eastus2'],
-      ['Central US', 'vnet-hub-centralus'],
+      ['East US 2', 'vnet-hub-eus2'],
+      ['Central US', 'vnet-hub-cus'],
     ]);
     const result = computePlan(plan);
     expect(countIssues(result)).toEqual({ errors: 0, warnings: 0 });
@@ -27,11 +27,11 @@ describe('computePlan', () => {
     expect(formatCidr(secondary.cidr!)).toBe('10.1.0.0/16');
     expect(formatCidr(primary.hub.cidr!)).toBe('10.0.0.0/22');
     expect(primary.spokes.map((s) => `${s.name} ${formatCidr(s.cidr!)}`)).toEqual([
-      'vnet-identity-eastus2 10.0.4.0/24',
-      'vnet-management-eastus2 10.0.5.0/24',
-      'vnet-security-eastus2 10.0.6.0/24',
-      'vnet-corp-eastus2-001 10.0.8.0/22',
-      'vnet-online-eastus2-001 10.0.12.0/23',
+      'vnet-identity-eus2 10.0.4.0/24',
+      'vnet-management-eus2 10.0.5.0/24',
+      'vnet-security-eus2 10.0.6.0/24',
+      'vnet-corp-eus2-001 10.0.8.0/22',
+      'vnet-online-eus2-001 10.0.12.0/23',
     ]);
     expect(primary.hub.subnets.slice(0, 4).map((s) => `${s.name} ${formatCidr(s.cidr!)}`)).toEqual([
       'snet-nva-outside 10.0.0.0/24',
@@ -54,9 +54,9 @@ describe('computePlan', () => {
     const combined = setPlatformLayout(separate, 'combined');
     expect(platformLayoutOf(combined)).toBe('combined');
     expect(combined.spokes.map((s) => s.name)).toEqual([
-      'vnet-platform-eastus2',
-      'vnet-corp-eastus2-001',
-      'vnet-online-eastus2-001',
+      'vnet-platform-eus2',
+      'vnet-corp-eus2-001',
+      'vnet-online-eus2-001',
     ]);
     expect(combined.spokes[0].subnets.map((s) => s.name)).toEqual(['snet-identity', 'snet-management', 'snet-security']);
     expect(combined.spokes[1]).toBe(separate.spokes[3]);
@@ -169,8 +169,13 @@ describe('computePlan', () => {
   it('renames a region and its VNets when it moves location', () => {
     const moved = relocateRegion(makeRegion('westeurope', 'hub-spoke'), 'swedencentral');
     expect(moved.name).toBe('Sweden Central');
-    expect(moved.hub.name).toBe('vnet-hub-swedencentral');
-    expect(moved.spokes.map((s) => s.name)).toContain('vnet-corp-swedencentral-001');
+    expect(moved.hub.name).toBe('vnet-hub-sdc');
+    expect(moved.spokes.map((s) => s.name)).toContain('vnet-corp-sdc-001');
+
+    // Names saved before region codes (vnet-hub-westeurope) are renamed too.
+    const legacy = makeRegion('westeurope', 'hub-spoke');
+    legacy.hub.name = 'vnet-hub-westeurope';
+    expect(relocateRegion(legacy, 'eastus2').hub.name).toBe('vnet-hub-eus2');
   });
 
   it('reports an invalid pin and falls back to automatic allocation', () => {

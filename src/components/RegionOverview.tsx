@@ -1,5 +1,6 @@
 import { blockSize } from '../lib/ipv4';
 import type { PlanResult, PlanSpec } from '../lib/planner';
+import { regionCode } from '../lib/naming';
 import { regionDisplayName } from '../lib/regions';
 import type { CSSProperties } from 'react';
 import { CidrBadge, regionColor } from './common';
@@ -49,7 +50,9 @@ export function RegionOverview({
                       {spec.name}
                     </button>
                   </td>
-                  <td>{regionDisplayName(spec.location)}</td>
+                  <td>
+                    {regionDisplayName(spec.location)} <code className="muted">{regionCode(spec.location)}</code>
+                  </td>
                   <td>
                     <CidrBadge cidr={r.cidr} />
                   </td>

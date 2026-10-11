@@ -104,7 +104,7 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
             Environment
             <input value={naming.environment} onChange={(e) => setNaming({ ...naming, environment: e.target.value })} />
           </label>
-          <label title="Used unless a VNet's name already ends in a number, like vnet-corp-eastus2-001">
+          <label title="Used unless a VNet's name already ends in a number, like vnet-corp-eus2-001">
             Instance
             <input value={naming.instance} onChange={(e) => setNaming({ ...naming, instance: e.target.value })} />
           </label>

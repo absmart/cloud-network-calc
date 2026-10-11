@@ -47,7 +47,7 @@ describe('IaC export', () => {
       'identity-prdeus201-vnet',
       'management-prdeus201-vnet',
       'security-prdeus201-vnet',
-      'corp-prdeus2001-vnet', // keeps the 001 from vnet-corp-eastus2-001
+      'corp-prdeus2001-vnet', // keeps the 001 from vnet-corp-eus2-001
       'online-prdeus2001-vnet',
       'hub-prdcus01-vnet',
       'identity-prdcus01-vnet',
@@ -64,6 +64,11 @@ describe('IaC export', () => {
       'GatewaySubnet', // Azure-reserved names are kept
     ]);
     expect(m.vnets[1].subnets[0].name).toBe('identity-prdeus201-snet');
+
+    // Plans saved with full location names (vnet-corp-eastus2-001) export the same names.
+    const legacy = defaultPlan();
+    for (const v of [legacy.regions[0].hub, ...legacy.regions[0].spokes]) v.name = v.name.replace('-eus2', '-eastus2');
+    expect(model(legacy).vnets.map((v) => v.name)).toEqual(m.vnets.map((v) => v.name));
   });
 
   it('uses the chosen app, environment and instance, and numbers repeats', () => {

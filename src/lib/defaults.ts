@@ -4,6 +4,7 @@
 // landing zone spokes.
 
 import type { PlanSpec, PlatformLayout, RegionSpec, SubnetSpec, Topology, VnetRole, VnetSpec } from './planner';
+import { regionCode } from './naming';
 import { AZURE_REGIONS, findRegion, regionDisplayName } from './regions';
 
 export const newId = () => Math.random().toString(36).slice(2, 10);
@@ -26,21 +27,21 @@ export type SpokeTemplate = 'identity' | 'management' | 'security' | 'platform' 
 export const SPOKE_TEMPLATES: Record<SpokeTemplate, { label: string; make: (loc: string) => VnetSpec }> = {
   identity: {
     label: 'Identity (platform)',
-    make: (loc) => vnet(`vnet-identity-${loc}`, 24, [subnet('snet-identity', 27)], 'identity'),
+    make: (loc) => vnet(`vnet-identity-${regionCode(loc)}`, 24, [subnet('snet-identity', 27)], 'identity'),
   },
   management: {
     label: 'Management (platform)',
-    make: (loc) => vnet(`vnet-management-${loc}`, 24, [subnet('snet-management', 26)], 'management'),
+    make: (loc) => vnet(`vnet-management-${regionCode(loc)}`, 24, [subnet('snet-management', 26)], 'management'),
   },
   security: {
     label: 'Security (platform)',
-    make: (loc) => vnet(`vnet-security-${loc}`, 24, [subnet('snet-security', 26)], 'security'),
+    make: (loc) => vnet(`vnet-security-${regionCode(loc)}`, 24, [subnet('snet-security', 26)], 'security'),
   },
   platform: {
     label: 'Platform: identity + management + security',
     make: (loc) =>
       vnet(
-        `vnet-platform-${loc}`,
+        `vnet-platform-${regionCode(loc)}`,
         24,
         [subnet('snet-identity', 26), subnet('snet-management', 26), subnet('snet-security', 26)],
         'platform',
@@ -50,7 +51,7 @@ export const SPOKE_TEMPLATES: Record<SpokeTemplate, { label: string; make: (loc:
     label: 'Corp landing zone',
     make: (loc) =>
       vnet(
-        `vnet-corp-${loc}-001`,
+        `vnet-corp-${regionCode(loc)}-001`,
         22,
         [subnet('snet-app', 24), subnet('snet-data', 24), subnet('snet-pe', 26)],
         'landing-zone',
@@ -59,11 +60,11 @@ export const SPOKE_TEMPLATES: Record<SpokeTemplate, { label: string; make: (loc:
   online: {
     label: 'Online landing zone',
     make: (loc) =>
-      vnet(`vnet-online-${loc}-001`, 23, [subnet('snet-appgw', 24), subnet('snet-web', 25)], 'landing-zone'),
+      vnet(`vnet-online-${regionCode(loc)}-001`, 23, [subnet('snet-appgw', 24), subnet('snet-web', 25)], 'landing-zone'),
   },
   empty: {
     label: 'Empty spoke',
-    make: (loc) => vnet(`vnet-spoke-${loc}`, 24, [], 'landing-zone'),
+    make: (loc) => vnet(`vnet-spoke-${regionCode(loc)}`, 24, [], 'landing-zone'),
   },
 };
 
@@ -98,11 +99,11 @@ export function migratePlan(plan: PlanSpec): PlanSpec {
 }
 
 export function makeHub(location: string, topology: Topology): VnetSpec {
-  if (topology === 'vwan') return vnet(`vhub-${location}`, 23, []);
+  if (topology === 'vwan') return vnet(`vhub-${regionCode(location)}`, 23, []);
   // Fixed positions within the /22 hub (offsets from its base, so they follow
   // the hub if it moves). The NVA owns the first two /24s; Azure services
   // start in the third.
-  return vnet(`vnet-hub-${location}`, 22, [
+  return vnet(`vnet-hub-${regionCode(location)}`, 22, [
     // x.x.0.0/24: NVA outside (untrusted) interfaces.
     placed('snet-nva-outside', 24, 0),
     // x.x.1.0/24: NVA inside, HA and management; the rest is NVA headroom.
@@ -155,12 +156,14 @@ export function nextUnusedLocation(plan: PlanSpec): string {
 
 /**
  * Move a region to another Azure location, renaming the region (if it still
- * has the default display name) and any VNet names that carry the old location.
+ * has the default display name) and any VNet names that carry the old region
+ * code (or, in plans saved before codes were used, the old location name).
  */
 export function relocateRegion(region: RegionSpec, location: string): RegionSpec {
   const old = region.location;
+  const oldTokens = [...new Set([regionCode(old), old])].filter(Boolean).join('|');
   const rename = (name: string) =>
-    old ? name.replace(new RegExp(`(^|-)${old}(?=-|$)`, 'g'), `$1${location}`) : name;
+    oldTokens ? name.replace(new RegExp(`(^|-)(${oldTokens})(?=-|$)`, 'g'), `$1${regionCode(location)}`) : name;
   const renameVnet = (v: VnetSpec): VnetSpec => ({ ...v, name: rename(v.name) });
   return {
     ...region,
