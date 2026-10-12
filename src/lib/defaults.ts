@@ -137,10 +137,16 @@ export function makeRegion(location: string, topology: Topology, platform: Platf
   };
 }
 
+/** The first region of a plan is East US 2 unless that's already taken. */
+export const FIRST_REGION = 'eastus2';
+
 /**
- * A sensible location for the next region: the Azure pair of the most
- * recent region whose pair is still free, else another region in the same
- * geography, else any region not yet used by the plan.
+ * The location for the next region:
+ *   1st region: East US 2;
+ *   2nd region: the Azure pair of the first region (East US 2 → Central US);
+ *   after that: the pair of the most recent region whose pair is still free,
+ *   else another region in the same geography, else any unused region.
+ * Each step falls through to the next if its region is already in the plan.
  */
 export function nextUnusedLocation(plan: PlanSpec): string {
   const used = new Set(plan.regions.map((r) => r.location));
@@ -148,10 +154,15 @@ export function nextUnusedLocation(plan: PlanSpec): string {
     !!location && !used.has(location) && !!findRegion(location);
   const existing = [...plan.regions].reverse().map((r) => findRegion(r.location));
 
+  if (plan.regions.length === 0 && free(FIRST_REGION)) return FIRST_REGION;
+  if (plan.regions.length === 1) {
+    const pair = findRegion(plan.regions[0].location)?.paired;
+    if (free(pair)) return pair;
+  }
   for (const r of existing) if (free(r?.paired)) return r!.paired!;
   const geography = existing.find(Boolean)?.geography;
   const candidates = AZURE_REGIONS.filter((r) => free(r.location));
-  return (candidates.find((r) => r.geography === geography) ?? candidates[0])?.location ?? 'eastus2';
+  return (candidates.find((r) => r.geography === geography) ?? candidates[0])?.location ?? FIRST_REGION;
 }
 
 /**
@@ -181,6 +192,6 @@ export function defaultPlan(): PlanSpec {
     // A /12 has room for 16 regional /16s.
     root: '10.0.0.0/12',
     // Primary and secondary are an Azure region pair.
-    regions: [makeRegion('eastus2', 'hub-spoke'), makeRegion('centralus', 'hub-spoke')],
+    regions: [makeRegion(FIRST_REGION, 'hub-spoke'), makeRegion('centralus', 'hub-spoke')],
   };
 }

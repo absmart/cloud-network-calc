@@ -103,6 +103,22 @@ describe('computePlan', () => {
     expect(new Set(plan.regions.map((r) => r.location)).size).toBe(16);
   });
 
+  it('starts a plan in East US 2 and puts the second region in its pair', () => {
+    const plan = defaultPlan();
+    plan.regions = [];
+    expect(nextUnusedLocation(plan)).toBe('eastus2');
+
+    // Adding regions one at a time to an empty plan.
+    for (let i = 0; i < 2; i++) plan.regions.push(makeRegion(nextUnusedLocation(plan), 'hub-spoke'));
+    expect(plan.regions.map((r) => r.location)).toEqual(['eastus2', 'centralus']);
+
+    // The second region follows whatever the first region is.
+    plan.regions = [makeRegion('westeurope', 'hub-spoke')];
+    expect(nextUnusedLocation(plan)).toBe('northeurope');
+    plan.regions = [makeRegion('centralus', 'hub-spoke')];
+    expect(nextUnusedLocation(plan)).toBe('eastus2');
+  });
+
   it('picks the paired region next, then stays in the same geography', () => {
     const plan = defaultPlan();
     plan.regions = [makeRegion('eastus', 'hub-spoke')];
