@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { SPOKE_TEMPLATES, defaultPlan, makeRegion } from './defaults';
 import { type IacFormat, TERRAGRUNT_ROOT, buildIacModel, generateIacFiles, toBicepParams, toTfvars } from './iac';
 import { crc32, createZip } from './zip';
-import type { NamingOptions } from './naming';
+import { DEFAULT_NAMING, type NamingOptions } from './naming';
 import { type PlanSpec, computePlan } from './planner';
 
 const model = (plan = defaultPlan()) => buildIacModel(plan, computePlan(plan));
@@ -25,49 +25,49 @@ describe('IaC export', () => {
     // Hub↔spoke both ways (2 × 5 × 2) plus the two hubs peered both ways.
     expect(m.peerings).toHaveLength(22);
     // Central US hub → East US 2 hub, named after the remote VNet.
-    expect(m.peerings.at(-1)!.name).toBe('hub-prdeus201-peer');
+    expect(m.peerings.at(-1)!.name).toBe('hub-prd-eus2-01-peer');
     const hub = m.vnets[0];
-    expect(hub).toMatchObject({ name: 'hub-prdeus201-vnet', location: 'eastus2', prefix: '10.0.0.0/22' });
-    expect(hub.subnets.find((s) => s.name === 'dnsinbound-prdeus201-snet')!.delegation).toBe('Microsoft.Network/dnsResolvers');
+    expect(hub).toMatchObject({ name: 'hub-prd-eus2-01-vnet', location: 'eastus2', prefix: '10.0.0.0/22' });
+    expect(hub.subnets.find((s) => s.name === 'dns-inbound-prd-eus2-01-snet')!.delegation).toBe('Microsoft.Network/dnsResolvers');
     expect(hub.subnets.find((s) => s.name === 'GatewaySubnet')!.delegation).toBeUndefined();
     expect(m.omitted).toEqual([]);
   });
 
   it('models Virtual WAN regions as virtual hubs with spoke connections', () => {
     const m = model(vwanPlan());
-    expect(m.virtualHubs).toEqual([{ name: 'hub-prdeus201-vhub', location: 'eastus2', prefix: '10.0.0.0/23' }]);
-    expect(m.virtualWan).toBe('network-prdeus201-vwan');
-    expect(m.hubConnections[0].name).toBe('identity-prdeus201-conn');
+    expect(m.virtualHubs).toEqual([{ name: 'hub-prd-eus2-01-vhub', location: 'eastus2', prefix: '10.0.0.0/23' }]);
+    expect(m.virtualWan).toBe('network-prd-eus2-01-vwan');
+    expect(m.hubConnections[0].name).toBe('identity-prd-eus2-01-conn');
     expect(m.hubConnections).toHaveLength(5);
     expect(m.vnets).toHaveLength(11);
     expect(m.peerings).toHaveLength(10); // only Central US's hub and spokes
   });
 
-  it('names resources <app>-<environment><region><int>-<resourcetype>', () => {
+  it('names resources <app>-<environment>-<region>-<int>-<resourcetype>', () => {
     const m = model();
-    expect(m.resourceGroup).toBe('network-prdeus201-rg');
+    expect(m.resourceGroup).toBe('network-prd-eus2-01-rg');
     expect(m.vnets.map((v) => v.name)).toEqual([
-      'hub-prdeus201-vnet',
-      'identity-prdeus201-vnet',
-      'management-prdeus201-vnet',
-      'security-prdeus201-vnet',
-      'corp-prdeus2001-vnet', // keeps the 001 from corp-eus2-001-vnet
-      'online-prdeus2001-vnet',
-      'hub-prdcus01-vnet',
-      'identity-prdcus01-vnet',
-      'management-prdcus01-vnet',
-      'security-prdcus01-vnet',
-      'corp-prdcus001-vnet',
-      'online-prdcus001-vnet',
+      'hub-prd-eus2-01-vnet',
+      'identity-prd-eus2-01-vnet',
+      'management-prd-eus2-01-vnet',
+      'security-prd-eus2-01-vnet',
+      'corp-prd-eus2-001-vnet', // keeps the 001 from corp-eus2-001-vnet
+      'online-prd-eus2-001-vnet',
+      'hub-prd-cus-01-vnet',
+      'identity-prd-cus-01-vnet',
+      'management-prd-cus-01-vnet',
+      'security-prd-cus-01-vnet',
+      'corp-prd-cus-001-vnet',
+      'online-prd-cus-001-vnet',
     ]);
     expect(m.vnets[0].subnets.map((s) => s.name).slice(0, 5)).toEqual([
-      'nvaoutside-prdeus201-snet',
-      'nvainside-prdeus201-snet',
-      'nvaha-prdeus201-snet',
-      'nvamgmt-prdeus201-snet',
+      'nva-outside-prd-eus2-01-snet',
+      'nva-inside-prd-eus2-01-snet',
+      'nva-ha-prd-eus2-01-snet',
+      'nva-mgmt-prd-eus2-01-snet',
       'GatewaySubnet', // Azure-reserved names are kept
     ]);
-    expect(m.vnets[1].subnets[0].name).toBe('identity-prdeus201-snet');
+    expect(m.vnets[1].subnets[0].name).toBe('identity-prd-eus2-01-snet');
 
     // Plans saved with older prefixed names (vnet-corp-eastus2-001, snet-dns-inbound)
     // export the same names, and keep the DNS resolver delegation.
@@ -82,24 +82,38 @@ describe('IaC export', () => {
     const legacyModel = model(legacy);
     expect(legacyModel.vnets.map((v) => v.name)).toEqual(m.vnets.map((v) => v.name));
     expect(legacyModel.vnets[0].subnets.map((s) => s.name)).toEqual(m.vnets[0].subnets.map((s) => s.name));
-    expect(legacyModel.vnets[0].subnets.find((s) => s.name === 'dnsinbound-prdeus201-snet')!.delegation).toBe(
+    expect(legacyModel.vnets[0].subnets.find((s) => s.name === 'dns-inbound-prd-eus2-01-snet')!.delegation).toBe(
       'Microsoft.Network/dnsResolvers',
     );
+  });
+
+  it('separates every name component with a single hyphen', () => {
+    const names = (naming: NamingOptions) => {
+      const m = buildIacModel(defaultPlan(), computePlan(defaultPlan()), naming);
+      return [m.resourceGroup, ...m.vnets.flatMap((v) => [v.name, ...v.subnets.map((s) => s.name)])];
+    };
+    for (const name of names(DEFAULT_NAMING).filter((n) => !/^[A-Z]/.test(n))) {
+      expect(name).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*-(prd)-(eus2|cus)-\d+-(rg|vnet|snet)$/);
+    }
+    // A blank environment is left out instead of leaving a double hyphen.
+    const blank = names({ ...DEFAULT_NAMING, environment: '' });
+    expect(blank[0]).toBe('network-eus2-01-rg');
+    expect(blank.some((n) => n.includes('--'))).toBe(false);
   });
 
   it('uses the chosen app, environment and instance, and numbers repeats', () => {
     const plan = defaultPlan();
     plan.regions[0].spokes.push(SPOKE_TEMPLATES.empty.make('eastus2'), SPOKE_TEMPLATES.empty.make('eastus2'));
     const m = buildIacModel(plan, computePlan(plan), { app: 'Contoso Net', environment: 'DEV', instance: '02' });
-    expect(m.resourceGroup).toBe('contosonet-deveus202-rg');
-    expect(m.vnets[0].name).toBe('hub-deveus202-vnet');
+    expect(m.resourceGroup).toBe('contoso-net-dev-eus2-02-rg');
+    expect(m.vnets[0].name).toBe('hub-dev-eus2-02-vnet');
     expect(m.vnets.filter((v) => v.name.startsWith('spoke-')).map((v) => v.name)).toEqual([
-      'spoke-deveus202-vnet',
-      'spoke-deveus203-vnet',
+      'spoke-dev-eus2-02-vnet',
+      'spoke-dev-eus2-03-vnet',
     ]);
     const tfvars = toTfvars(m);
-    expect(tfvars).toContain('"hub-deveus202-vnet/identity-deveus202-peer" = {');
-    expect(tfvars).toContain('resource_group_name     = "contosonet-deveus202-rg"');
+    expect(tfvars).toContain('"hub-dev-eus2-02-vnet/identity-dev-eus2-02-peer" = {');
+    expect(tfvars).toContain('resource_group_name     = "contoso-net-dev-eus2-02-rg"');
   });
 
   it('keeps templates generic: the same template for any plan, values only in the variables file', () => {
@@ -110,7 +124,7 @@ describe('IaC export', () => {
 
     // No plan values in the templates...
     for (const [template] of [a, files('terraform', defaultPlan())]) {
-      expect(template.content).not.toMatch(/10\.0\.|eastus2|prdeus2|GatewaySubnet/);
+      expect(template.content).not.toMatch(/10\.0\.|eastus2|prd-eus2|eus2-01|GatewaySubnet/);
     }
     // ...every input is a parameter / variable.
     for (const p of ['tags', 'vnets', 'peerings', 'virtualWan', 'virtualHubs', 'hubConnections']) {
@@ -125,22 +139,22 @@ describe('IaC export', () => {
   it('puts the plan into the variables files', () => {
     const [, params] = files('bicep', defaultPlan());
     expect(params.content).toContain("using './alz-network.bicep'");
-    expect(params.content).toContain("name: 'hub-prdeus201-vnet'");
+    expect(params.content).toContain("name: 'hub-prd-eus2-01-vnet'");
     expect(params.content).toContain("delegation: 'Microsoft.Network/dnsResolvers'");
-    expect(params.content).toContain("remoteVnet: 'identity-prdeus201-vnet'");
+    expect(params.content).toContain("remoteVnet: 'identity-prd-eus2-01-vnet'");
     expect(params.content).not.toContain('param virtualWan');
 
     const [, tfvars] = files('terraform', defaultPlan());
-    expect(tfvars.content).toContain('"hub-prdeus201-vnet" = {');
+    expect(tfvars.content).toContain('"hub-prd-eus2-01-vnet" = {');
     expect(tfvars.content).toContain('"GatewaySubnet"');
-    expect(tfvars.content).toContain('remote_vnet             = "identity-prdeus201-vnet"');
+    expect(tfvars.content).toContain('remote_vnet             = "identity-prd-eus2-01-vnet"');
     expect(tfvars.content).not.toContain('virtual_wan');
 
     const [, wanParams] = files('bicep', vwanPlan());
-    expect(wanParams.content).toContain("param virtualWan = {\n  name: 'network-prdeus201-vwan'");
-    expect(wanParams.content).toContain("virtualHub: 'hub-prdeus201-vhub'");
+    expect(wanParams.content).toContain("param virtualWan = {\n  name: 'network-prd-eus2-01-vwan'");
+    expect(wanParams.content).toContain("virtualHub: 'hub-prd-eus2-01-vhub'");
     const [, wanVars] = files('terraform', vwanPlan());
-    expect(wanVars.content).toContain('virtual_hub = "hub-prdeus201-vhub"');
+    expect(wanVars.content).toContain('virtual_hub = "hub-prd-eus2-01-vhub"');
   });
 
   it('names the variables file after the environment', () => {
@@ -188,8 +202,8 @@ describe('IaC export', () => {
     );
     expect(live).toContain('path = find_in_parent_folders("root.hcl")');
     expect(live).toContain('source = "${get_parent_terragrunt_dir("root")}/modules//alz-network"');
-    expect(live).toContain('inputs = {\n  resource_group_name     = "network-deveus201-rg"');
-    expect(live).toContain('    "hub-deveus201-vnet" = {');
+    expect(live).toContain('inputs = {\n  resource_group_name     = "network-dev-eus2-01-rg"');
+    expect(live).toContain('    "hub-dev-eus2-01-vnet" = {');
     expect(live).not.toContain('subscription_id');
   });
 

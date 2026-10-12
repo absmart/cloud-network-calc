@@ -87,7 +87,7 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
         </p>
         <div className="row naming">
           <span className="muted">
-            Names: <code>&lt;app&gt;-&lt;environment&gt;&lt;region&gt;&lt;int&gt;-&lt;type&gt;</code>
+            Names: <code>&lt;app&gt;-&lt;environment&gt;-&lt;region&gt;-&lt;int&gt;-&lt;type&gt;</code>
           </span>
           <label title="App used for the resource group and Virtual WAN; VNets and subnets take their app from their own name">
             Shared app

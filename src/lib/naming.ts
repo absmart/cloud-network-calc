@@ -1,6 +1,6 @@
 // Region short codes (eastus2 → eus2), used in the planner's VNet names
 // (hub-eus2-vnet), and resource naming for exported IaC:
-// <app>-<environment><region><int>-<resourcetype>, for example hub-prdeus201-vnet.
+// <app>-<environment>-<region>-<int>-<resourcetype>, for example hub-prd-eus2-01-vnet.
 
 export interface NamingOptions {
   /** <app> for shared resources: the resource group and the Virtual WAN. */
@@ -79,9 +79,17 @@ export const regionCode = (location: string) => REGION_CODES[location] ?? clean(
 
 const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
+/** Lowercase words joined by single hyphens: "Contoso Net" → "contoso-net". */
+const hyphenate = (s: string) =>
+  s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .join('-');
+
 export function normalizeNaming(options: NamingOptions): NamingOptions {
   return {
-    app: clean(options.app) || DEFAULT_NAMING.app,
+    app: hyphenate(options.app) || DEFAULT_NAMING.app,
     environment: clean(options.environment),
     instance: options.instance.replace(/\D/g, '') || DEFAULT_NAMING.instance,
   };
@@ -89,7 +97,7 @@ export function normalizeNaming(options: NamingOptions): NamingOptions {
 
 /**
  * Split a planner name such as "corp-eus2-001-vnet" or "nva-outside-snet"
- * into an <app> ("corp", "nvaoutside") and an optional instance ("001"),
+ * into an <app> ("corp", "nva-outside") and an optional instance ("001"),
  * dropping the resource-type suffix and the region (as a code, or as the
  * full location name). Older plans' prefixed names ("vnet-corp-eastus2-001")
  * parse the same way.
@@ -101,11 +109,15 @@ export function parsePlannerName(name: string, location: string): { app: string;
   else if (types.includes(tokens[0])) tokens.shift();
   const rest = tokens.filter((t) => t !== location && t !== regionCode(location));
   const instance = rest.length > 1 && /^\d+$/.test(rest.at(-1)!) ? rest.pop() : undefined;
-  return { app: rest.join(''), instance };
+  return { app: rest.join('-'), instance };
 }
 
-/** <app>-<environment><region><int>, the part every resource type shares. */
+/**
+ * <app>-<environment>-<region>-<int>, the part every resource type shares.
+ * Every component is separated by a hyphen; an empty environment is left out
+ * rather than leaving a double hyphen.
+ */
 export const nameBase = (app: string, options: NamingOptions, location: string, instance = options.instance) =>
-  `${app}-${options.environment}${regionCode(location)}${instance}`;
+  [app, options.environment, regionCode(location), instance].filter(Boolean).join('-');
 
 export const resourceName = (base: string, type: string) => `${base}-${type}`;
