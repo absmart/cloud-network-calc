@@ -1,5 +1,6 @@
 import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { AllocationBar, Issues, regionColor } from './components/common';
+import { DesignsDialog } from './components/DesignsDialog';
 import { ExportDialog } from './components/ExportDialog';
 import { RegionCard } from './components/RegionCard';
 import { SummaryTable } from './components/SummaryTable';
@@ -12,39 +13,96 @@ import {
   nextUnusedLocation,
   platformLayoutOf,
 } from './lib/defaults';
+import {
+  type SavedDesign,
+  createDesign,
+  duplicateDesign,
+  hasUnsavedChanges,
+  renameDesign,
+  updateDesign,
+} from './lib/designs';
 import { formatCidr } from './lib/ipv4';
 import { type PlanSpec, type RegionSpec, computePlan, countIssues } from './lib/planner';
+import { STORAGE_KEYS, loadNaming, readJson, writeJson } from './lib/storage';
 
-const STORAGE_KEY = 'alz-cidr-planner:plan';
 const ALL = 'all';
 
 function loadPlan(): PlanSpec {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const plan = JSON.parse(raw);
-      if (plan?.version === 1) return migratePlan(plan);
-    }
-  } catch {
-    // Fall through to the default plan.
-  }
-  return defaultPlan();
+  const plan = readJson<PlanSpec>(STORAGE_KEYS.plan);
+  return plan?.version === 1 ? migratePlan(plan) : defaultPlan();
 }
 
 export default function App() {
   const [plan, setPlan] = useState<PlanSpec>(loadPlan);
   const [view, setView] = useState<'design' | 'table'>('design');
   const [exporting, setExporting] = useState(false);
+  const [showDesigns, setShowDesigns] = useState(false);
+  const [storageOk, setStorageOk] = useState(true);
   const result = useMemo(() => computePlan(plan), [plan]);
   const counts = countIssues(result);
 
+  // Saved designs, and the one the current plan belongs to (if any).
+  const [designs, setDesigns] = useState<SavedDesign[]>(() => readJson<SavedDesign[]>(STORAGE_KEYS.designs) ?? []);
+  const [activeDesignId, setActiveDesignId] = useState<string | null>(() => readJson<string>(STORAGE_KEYS.activeDesign));
+  const activeDesign = designs.find((d) => d.id === activeDesignId);
+  const unsaved = hasUnsavedChanges(activeDesign, plan);
+
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(plan));
-    } catch {
-      // Storage unavailable; the plan just won't persist.
-    }
+    setStorageOk(writeJson(STORAGE_KEYS.plan, plan));
   }, [plan]);
+  useEffect(() => {
+    setStorageOk(writeJson(STORAGE_KEYS.designs, designs));
+  }, [designs]);
+  useEffect(() => {
+    writeJson(STORAGE_KEYS.activeDesign, activeDesign ? activeDesign.id : null);
+  }, [activeDesign]);
+
+  /** Save into the open design, or as a new one if none is open. */
+  const saveDesign = (asNew = false) => {
+    const naming = loadNaming();
+    if (activeDesign && !asNew) {
+      setDesigns(designs.map((d) => (d.id === activeDesign.id ? updateDesign(d, plan, naming) : d)));
+    } else {
+      const design = createDesign(plan, naming);
+      setDesigns([...designs, design]);
+      setActiveDesignId(design.id);
+    }
+  };
+
+  const openDesign = (id: string) => {
+    const design = designs.find((d) => d.id === id);
+    if (!design) return;
+    const opened = migratePlan(JSON.parse(JSON.stringify(design.plan)));
+    setPlan(opened);
+    setActiveDesignId(id);
+    setSelected(opened.regions[0]?.id ?? ALL);
+    writeJson(STORAGE_KEYS.naming, design.naming);
+  };
+
+  const newDesign = () => {
+    const fresh = defaultPlan();
+    setPlan(fresh);
+    setActiveDesignId(null);
+    setSelected(fresh.regions[0].id);
+  };
+
+  const renameSavedDesign = (id: string, name: string) => {
+    setDesigns(designs.map((d) => (d.id === id ? renameDesign(d, name) : d)));
+    // Keep the open plan's title in step, so a rename alone isn't an unsaved change.
+    if (id === activeDesignId) setPlan({ ...plan, name });
+  };
+
+  useEffect(() => {
+    // Ctrl/Cmd+S saves the design instead of the web page.
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        saveDesign();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   // Which region tab is open: a region id, or ALL. Falls back to the first
   // region if the selected one was removed.
@@ -67,11 +125,7 @@ export default function App() {
   };
 
   const reset = () => {
-    if (window.confirm('Replace the current plan with the default example?')) {
-      const fresh = defaultPlan();
-      setPlan(fresh);
-      setSelected(fresh.regions[0].id);
-    }
+    if (window.confirm('Replace the current plan with the default example? Saved designs are kept.')) newDesign();
   };
 
   return (
@@ -79,6 +133,13 @@ export default function App() {
       <header className="topbar">
         <div className="row">
           <input className="plan-name" value={plan.name} onChange={(e) => setPlan({ ...plan, name: e.target.value })} />
+          <button
+            className={`chip save-chip ${activeDesign && !unsaved ? 'saved' : 'unsaved'}`}
+            title={activeDesign ? 'Open Designs (Ctrl+S saves)' : 'This plan is not saved as a design yet. Open Designs to save it.'}
+            onClick={() => setShowDesigns(true)}
+          >
+            {activeDesign ? (unsaved ? '● unsaved changes' : '✓ saved') : 'not saved'}
+          </button>
           <label>
             Root address space
             <input className="root" value={plan.root} onChange={(e) => setPlan({ ...plan, root: e.target.value })} />
@@ -94,6 +155,7 @@ export default function App() {
           <span className={`status ${counts.errors ? 'error' : counts.warnings ? 'warning' : 'ok'}`}>
             {counts.errors} errors · {counts.warnings} warnings
           </span>
+          <button onClick={() => setShowDesigns(true)}>Designs{designs.length ? ` (${designs.length})` : ''}</button>
           <button className="primary" onClick={() => setExporting(true)}>
             Export IaC
           </button>
@@ -178,6 +240,27 @@ export default function App() {
         )}
       </main>
       {exporting && <ExportDialog plan={plan} result={result} onClose={() => setExporting(false)} />}
+      {showDesigns && (
+        <DesignsDialog
+          plan={plan}
+          naming={loadNaming()}
+          designs={designs}
+          activeId={activeDesign?.id ?? null}
+          storageOk={storageOk}
+          onSave={() => saveDesign()}
+          onSaveAsNew={() => saveDesign(true)}
+          onOpen={openDesign}
+          onNew={newDesign}
+          onRename={renameSavedDesign}
+          onDuplicate={(id) => {
+            const source = designs.find((d) => d.id === id);
+            if (source) setDesigns([...designs, duplicateDesign(source, designs)]);
+          }}
+          onDelete={(id) => setDesigns(designs.filter((d) => d.id !== id))}
+          onImport={(imported) => setDesigns([...designs, ...imported])}
+          onClose={() => setShowDesigns(false)}
+        />
+      )}
     </div>
   );
 }

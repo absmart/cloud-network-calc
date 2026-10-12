@@ -52,7 +52,15 @@ A browser app for planning IP address space for Azure Landing Zone network desig
   
   Everything deploys into one resource group (default `network-prdeus201-rg`). Anything the plan couldn't allocate is listed at the top of the file. To write sample files for `az bicep build` / `terraform validate`, run `IAC_OUT_DIR=<dir> npm test`.
 
-The plan is saved automatically to your browser's local storage.
+The plan you're working on is kept automatically in your browser's local storage.
+
+## Designs (save and back up)
+
+The **Designs** button keeps multiple named designs:
+- **Save** the current plan as a design (or press Ctrl+S), or **Save as new**. A chip next to the plan name shows whether there are unsaved changes.
+- **Open**, **Duplicate**, **Rename** or **Delete** saved designs. Opening asks before discarding unsaved changes.
+- Each design keeps the full plan (regions, CIDRs, VNets, subnets, layouts) and the IaC naming options.
+- **Export** one design, the current plan, or **all** designs to a `.json` backup, and **Import** them again here or in another browser. Saved designs live in this browser only, so export them to keep a real backup.
 
 ## Run
 

@@ -1,23 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { type IacFormat, TERRAGRUNT_ROOT, buildIacModel, generateIacFiles } from '../lib/iac';
 import { DEFAULT_NAMING, type NamingOptions } from '../lib/naming';
+import { STORAGE_KEYS, loadNaming, writeJson } from '../lib/storage';
 import { type PlanResult, type PlanSpec, countIssues } from '../lib/planner';
+import { downloadFile as save } from '../lib/download';
 import { createZip } from '../lib/zip';
 
 const FORMAT_LABEL: Record<IacFormat, string> = { bicep: 'Bicep', terraform: 'Terraform', terragrunt: 'Terragrunt' };
-const NAMING_KEY = 'alz-cidr-planner:naming';
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
-
-function loadNaming(): NamingOptions {
-  try {
-    const saved = JSON.parse(localStorage.getItem(NAMING_KEY) ?? 'null');
-    if (saved) return { ...DEFAULT_NAMING, ...saved };
-  } catch {
-    // Use the defaults.
-  }
-  return DEFAULT_NAMING;
-}
 
 /** Shows the plan as Bicep, Terraform or Terragrunt, ready to copy or download. */
 export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClose: () => void }) {
@@ -41,11 +32,7 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
   }, [props.plan, props.result, naming]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(NAMING_KEY, JSON.stringify(naming));
-    } catch {
-      // Not remembered; fine.
-    }
+    writeJson(STORAGE_KEYS.naming, naming);
   }, [naming]);
   const { errors } = countIssues(props.result);
   const { onClose } = props;
@@ -64,16 +51,6 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
     } catch {
       setCopied(false);
     }
-  };
-
-  const save = (name: string, data: BlobPart, type = 'text/plain') => {
-    const url = URL.createObjectURL(new Blob([data], { type }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    // Revoking straight away can cancel the download in some browsers.
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (
