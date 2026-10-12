@@ -1,0 +1,62 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+ALZ CIDR Planner: a static, client-only React 18 + TypeScript + Vite app for planning IPv4 address space for Azure Landing Zone networks (root range → regional /16s → hub and spoke VNets → subnets), validating it against Azure rules, and exporting Bicep / Terraform / Terragrunt. There is no backend; all state lives in browser `localStorage`. `README.md` is the user-facing feature spec. Keep it in sync when behaviour changes.
+
+## Commands
+
+```powershell
+npm install
+npm run dev                          # Vite dev server, http://localhost:5173
+npm test                             # vitest run (all *.test.ts in src/lib)
+npx vitest run src/lib/planner.test.ts           # one file
+npx vitest run -t "hub-to-hub"                   # tests whose name matches
+npm run build                        # tsc (type-check, strict + noUnusedLocals/Parameters) then vite build → dist/
+npm run update-regions               # refresh src/lib/azure-regions.json from `az account list-locations` (needs a logged-in Azure CLI)
+```
+
+There is no linter or formatter configured. `tsc` in `npm run build` is the only static check. `noUnusedLocals`/`noUnusedParameters` will fail the build.
+
+To produce real IaC samples for checking with `az bicep build` or `terraform validate`, set `IAC_OUT_DIR` before running the tests. This enables a test in `iac.test.ts` that writes hub-spoke and vWAN samples in every format (PowerShell: `$env:IAC_OUT_DIR='out'; npm test`).
+
+## Deploy
+
+The app is hosted on Azure Static Web Apps (`swa-cloud-network-calc` in resource group `rg-cloud-network-calc`, https://ambitious-sea-0d5e2730f.5.azurestaticapps.net). It is **not** linked to GitHub, so pushing doesn't deploy. Build, then deploy `dist/` with the SWA CLI using the deployment token from a logged-in Azure CLI:
+
+```bash
+npm run build
+export SWA_CLI_DEPLOYMENT_TOKEN=$(az staticwebapp secrets list -n swa-cloud-network-calc -g rg-cloud-network-calc --query properties.apiKey -o tsv)
+npx --yes @azure/static-web-apps-cli@2.0.2 deploy ./dist --env production
+```
+
+## Architecture
+
+All logic is pure functions in `src/lib/`, and that is where every test lives. `src/components/` is thin React UI over it. There is no state library: `App.tsx` holds the plan in `useState`.
+
+**Spec vs. result.** The core split is in `planner.ts`:
+- `PlanSpec` → `RegionSpec` → `VnetSpec` → `SubnetSpec` is what the user edits and what gets persisted. Blocks are given as a size (`prefix`), optionally pinned (`fixed` CIDR string), and for subnets optionally an `offset` relative to the VNet base.
+- `computePlan(plan)` derives a `PlanResult` tree (actual `Cidr`s, free blocks, `Issue[]` at every level) and is recomputed with `useMemo` on every edit. Never store computed CIDRs back into the spec unless you mean to pin them. Components receive both `spec` and `result` and call `onChange(newSpec)` with immutable updates.
+
+**Allocation** (`ipv4.allocate`): at each level (root → regions, region → hub + spokes, VNet → subnets), pinned requests are placed first, then the rest go first-fit on natural alignment in list order. As a result, appending a block never moves existing ones, and list order matters. Allocation failures become `Issue`s; they are never thrown. The region's hub is always request index 0 ahead of the spokes.
+
+**Visual subnet editor** (`layout.ts`): it treats a VNet as a binary tree of blocks but never stores a tree. Leaves are derived from the allocated subnets plus free space, refined by the `VnetSpec.splits` the user made. `divide`/`join`/`assign`/`release` first "lock" every auto-placed subnet by writing its current `offset`, so that a visual edit doesn't reshuffle the others. `autoPack` clears offsets and splits. Offsets are relative so the layout follows the VNet if it moves. Absolute `fixed` pins stay absolute.
+
+**Azure rules** live in `azure.ts`: `SUBNET_PRESETS` defines reserved names, minimum and default sizes, hub-only and delegations; it also holds the /29 minimum, 5 reserved IPs, vWAN hub sizes and private/forbidden ranges. `planner.ts` turns these into issues.
+
+**Defaults and templates** (`defaults.ts`): `makeHub` (the hub-spoke hub is a /22 with subnets at fixed offsets: NVA subnets in the first two /24s, Azure services from the third), `SPOKE_TEMPLATES`, the platform layout switch (`setPlatformLayout` replaces only spokes whose `role` isn't `landing-zone` and hub subnets flagged `platform`; the `hub` layout is hub & spoke only, and `setTopology` moves hub platform subnets out to spokes when switching to vWAN), `nextUnusedLocation` (East US 2 first, then Azure pairs, then same geography), and `relocateRegion` (renames VNets carrying the old region code).
+
+**Persistence and migration.** `storage.ts` holds all `localStorage` keys (prefixed `alz-cidr-planner:`) and guarded read/write. `PlanSpec.version` is `1`. Older saved plans are upgraded by `migratePlan` in `defaults.ts`, which is applied on load, on opening a design and on import. Any spec shape change must stay backward compatible through `migratePlan`, because users have plans in browser storage and in exported JSON backups. `designs.ts` handles named saved designs (plan + `NamingOptions`) and the JSON backup format. `parseBackup` accepts a backup, a single design or a bare plan.
+
+**Region data.** `azure-regions.json` is a committed snapshot, because the hosted app can't call Azure. `regions.ts` wraps it. Short region codes (`eastus2` → `eus2`) are a separate hand-maintained table in `naming.ts`; a new region missing there falls back to its full location name.
+
+**IaC export** (`iac.ts`): `buildIacModel(plan, result, naming)` builds one intermediate model (VNets, subnets with delegations, peerings both ways including hub-to-hub, vWAN hubs and connections, plus the unallocated items as `omitted`). Each format renders from that model, so Bicep and Terraform always describe the same network. Templates (`toBicep()`, `toTerraform()`) take no arguments: they are fully parameterized and must not hard-code any plan values. Plan values only go into the variables renderers (`toBicepParams`, `toTfvars`, `toTerragruntLive`). `generateIacFiles` picks the file set per format. The Terragrunt option is zipped by the dependency-free `zip.ts`. Tests assert on exact generated names and counts, so update `iac.test.ts` along with output changes.
+
+**Naming** (`naming.ts`): the planner shows readable names (`hub-eus2-vnet`, `corp-cus-001-vnet`). Exported names are rebuilt as `<app>-<env>-<region>-<int>-<type>` by `parsePlannerName` → `nameBase` → `resourceName`. Azure-reserved subnet names (e.g. `GatewaySubnet`) pass through unchanged.
+
+## Conventions
+
+- Exact-pinned dependency versions in `package.json`.
+- Commit messages: short imperative sentence describing the user-visible change (e.g. "Hyphenate every component of exported names").
