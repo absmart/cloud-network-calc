@@ -218,6 +218,85 @@ button.primary:hover {
   margin: 0;
 }
 
+/* Import from Azure */
+
+/* Scrolls as a whole when the screen is too short for it. */
+.import-azure {
+  overflow-y: auto;
+}
+
+.import-azure .import-sources {
+  margin-top: 12px;
+  align-self: flex-start;
+  flex-wrap: wrap;
+}
+
+.import-azure .command {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.import-azure .command code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.import-azure textarea.import-input {
+  flex: 1 1 160px;
+  min-height: 120px;
+  margin-top: 12px;
+  border-radius: 6px;
+  resize: vertical;
+  color: var(--text);
+}
+
+.import-azure .import-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.import-azure .import-preview {
+  flex-shrink: 0;
+  max-height: 200px;
+  overflow: auto;
+  margin-top: 12px;
+}
+
+.import-azure .import-preview table {
+  margin: 0;
+}
+
+.import-azure .issues {
+  flex-shrink: 0;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.issues li.info {
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+.import-azure .footer {
+  margin-top: 12px;
+}
+
+.import-azure .import-name {
+  margin-left: auto;
+}
+
+.import-azure .import-name input {
+  width: 220px;
+}
+
 button.danger:hover {
   color: var(--error);
   border-color: var(--error);

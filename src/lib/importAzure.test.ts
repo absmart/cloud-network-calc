@@ -190,8 +190,23 @@ describe('importAzureNetwork', () => {
     expect(issues).toEqual(['10.0.0.0/25 overlaps 10.0.0.0/24']);
   });
 
+  it('reads several documents pasted one after another, and warns about further pages', () => {
+    const vnets = [armVnet('lz', 'westeurope', ['10.1.4.0/24'], [['a]{"', '10.1.4.0/25']])];
+    const page = { count: 1, data: [vhub('vhub-weu', 'westeurope', '10.1.0.0/23')], skip_token: 'abc' };
+    const { plan, notes } = importAzureNetwork(
+      `${JSON.stringify(vnets, null, 2)}\nThe command requires the extension virtual-wan. Install it now? (Y/n): y\n${JSON.stringify(page)}\n`,
+    );
+    expect(notes.map((n) => n.message)).toContain('Text that isn’t JSON (such as CLI messages) was skipped');
+    expect(plan.regions[0]).toMatchObject({ topology: 'vwan', hub: { name: 'vhub-weu' } });
+    expect(plan.regions[0].spokes[0].subnets[0].name).toBe('a]{"');
+    expect(notes.map((n) => n.level)).toContain('warning');
+    expect(notes.some((n) => n.message.includes('only the first page'))).toBe(true);
+  });
+
   it('rejects input it cannot use', () => {
     expect(() => importAzureNetwork('not json')).toThrow('The text is not valid JSON.');
+    expect(() => importAzureNetwork('[] WARNING: something')).toThrow('No virtual networks or Virtual WAN hubs were found.');
+    expect(() => importAzureNetwork('[{"a": 1}')).toThrow('The text is not valid JSON.');
     expect(() => importAzureNetwork('{"data": []}')).toThrow('No virtual networks or Virtual WAN hubs were found.');
   });
 });

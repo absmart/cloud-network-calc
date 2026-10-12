@@ -63,6 +63,20 @@ The **Designs** button keeps multiple named designs:
 - Each design keeps the full plan (regions, CIDRs, VNets, subnets, layouts) and the IaC naming options.
 - **Export** one design, the current plan, or **all** designs to a `.json` backup, and **Import** them again here or in another browser. Saved designs live in this browser only, so export them to keep a real backup.
 
+## Import from Azure
+
+**Import from Azure** brings an existing network into the planner, to check it against the Azure rules and plan what comes next. The app can't call Azure, so you export the network yourself and paste or load the output. It is read in the browser and sent nowhere. The dialog has a command to copy for each of these:
+- **Azure CLI · Resource Graph**: VNets and Virtual WAN hubs across every subscription you can read (`az graph query`, needs the `resource-graph` extension). Over 1,000 results come in pages; paste every page together.
+- **Azure CLI**: `az network vnet list` and `az network vhub list` for the current subscription (`vhub` needs the `virtual-wan` extension).
+- **Azure PowerShell**: `Get-AzVirtualNetwork` and `Get-AzVirtualHub`, converted with `ConvertTo-Json -Depth 10`.
+
+Output from several commands or subscriptions can be pasted together. CLI messages mixed in, such as extension prompts, are skipped. A preview lists the regions found, notes on anything that was guessed or left out, and the planner's errors and warnings. **Open as new design** opens the network and saves it as a design.
+
+How the network is turned into a plan:
+- Each Azure location is a region. A Virtual WAN hub there makes it a Virtual WAN region. Otherwise the hub is the VNet with a gateway or firewall subnet, failing that the one with the most peerings, and the other VNets are spokes.
+- Everything is pinned where it is: region ranges (a /16 where that doesn't take in another region's VNets, otherwise the smallest range covering the region), VNets and subnet positions. The root range is the smallest range covering all regions. Overlaps and rule breaks in the real network show up as the planner's usual errors.
+- A planner VNet has one address range, so for a VNet with several only the range holding the most subnets is imported. The others are listed in the notes. Imported spokes are landing zones, so changing a region's platform layout never replaces them.
+
 ## Run
 
 Requires Node.js 18 or later.

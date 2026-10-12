@@ -17,6 +17,30 @@ export const AZURE_IMPORT_QUERY = `resources
 | where type in~ ('microsoft.network/virtualnetworks', 'microsoft.network/virtualhubs')
 | project id, name, type, location, properties`;
 
+/** Commands that export a network in a shape `importAzureNetwork` reads. */
+export const AZURE_IMPORT_COMMANDS: { id: string; label: string; scope: string; command: string; hint?: string }[] = [
+  {
+    id: 'graph',
+    label: 'Azure CLI · Resource Graph',
+    scope: 'every subscription you can read',
+    command: `az graph query -q "${AZURE_IMPORT_QUERY.replace(/\s*\n\s*/g, ' ')}" --first 1000 -o json`,
+    hint: 'Needs the resource-graph extension, which the Azure CLI offers to install.',
+  },
+  {
+    id: 'cli',
+    label: 'Azure CLI',
+    scope: 'the current subscription',
+    command: 'az network vnet list -o json; az network vhub list -o json',
+    hint: 'az network vhub list needs the virtual-wan extension, which the Azure CLI offers to install.',
+  },
+  {
+    id: 'powershell',
+    label: 'Azure PowerShell',
+    scope: 'the current subscription',
+    command: 'Get-AzVirtualNetwork | ConvertTo-Json -Depth 10; Get-AzVirtualHub | ConvertTo-Json -Depth 10',
+  },
+];
+
 export interface ImportNote {
   level: 'info' | 'warning';
   message: string;
@@ -72,6 +96,53 @@ const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : v === undefined 
 
 /** "East US 2" and "eastus2" are the same location. */
 const normalizeLocation = (location: string) => location.toLowerCase().replace(/\s+/g, '');
+
+const NOT_JSON = 'The text is not valid JSON.';
+
+/**
+ * Parse one JSON document, or several pasted one after another (the output of
+ * more than one command, subscription or results page). Text between them,
+ * such as CLI warnings and prompts copied from a terminal, is skipped.
+ */
+function parseDocuments(input: string): { docs: unknown[]; skippedText: boolean } {
+  try {
+    return { docs: [JSON.parse(input)], skippedText: false };
+  } catch {
+    // Maybe several documents; split them below.
+  }
+  const docs: unknown[] = [];
+  let skippedText = false;
+  let depth = 0;
+  let start = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '{' || ch === '[') {
+      if (depth++ === 0) start = i;
+    } else if (depth === 0) {
+      if (!/\s/.test(ch)) skippedText = true;
+    } else if (ch === '"') {
+      inString = true;
+    } else if ((ch === '}' || ch === ']') && --depth === 0) {
+      try {
+        docs.push(JSON.parse(input.slice(start, i + 1)));
+      } catch {
+        throw new Error(NOT_JSON);
+      }
+    }
+  }
+  if (depth !== 0 || docs.length === 0) throw new Error(NOT_JSON);
+  return { docs, skippedText };
+}
+
+/** Whether a response says it has more pages (Resource Graph skip token, ARM nextLink). */
+const hasMorePages = (doc: unknown) =>
+  isObject(doc) && ['skip_token', '$skipToken', 'skipToken', 'nextLink'].some((k) => text(fieldOwn(doc, k)));
 
 /** Every resource object in the input, whatever wrapper it came in. */
 function resources(data: unknown): Json[] {
@@ -277,18 +348,20 @@ function buildRegion(location: string, vnets: FoundVnet[], hubs: FoundHub[], not
  * Turn exported Azure network JSON into a plan. Accepts Resource Graph output
  * (see AZURE_IMPORT_QUERY), `az network vnet list` / `az network vhub list`,
  * `Get-AzVirtualNetwork | ConvertTo-Json -Depth 10`, ARM REST list responses,
- * or an array mixing any of these. Throws with a readable message if nothing
+ * or several of these pasted one after another. Throws with a readable message if nothing
  * usable is found.
  */
 export function importAzureNetwork(input: string, name = 'Imported Azure network'): AzureImport {
-  let data: unknown;
-  try {
-    data = JSON.parse(input);
-  } catch {
-    throw new Error('The text is not valid JSON.');
-  }
-
+  const { docs: data, skippedText } = parseDocuments(input);
   const notes: ImportNote[] = [];
+  if (skippedText) notes.push({ level: 'info', message: 'Text that isn’t JSON (such as CLI messages) was skipped' });
+  if (data.some(hasMorePages))
+    notes.push({
+      level: 'warning',
+      message:
+        'The results are only the first page: run the query again with the skip token it returned (az graph query --skip-token) and paste every page together',
+    });
+
   const vnets = new Map<string, FoundVnet>();
   const hubs = new Map<string, FoundHub>();
   for (const resource of resources(data)) {

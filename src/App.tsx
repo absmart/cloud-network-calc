@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { AllocationBar, Issues, regionColor } from './components/common';
 import { DesignsDialog } from './components/DesignsDialog';
 import { ExportDialog } from './components/ExportDialog';
+import { ImportAzureDialog } from './components/ImportAzureDialog';
 import { RegionCard } from './components/RegionCard';
 import { SummaryTable } from './components/SummaryTable';
 import { RegionOverview } from './components/RegionOverview';
@@ -37,6 +38,7 @@ export default function App() {
   const [view, setView] = useState<'design' | 'table'>('design');
   const [exporting, setExporting] = useState(false);
   const [showDesigns, setShowDesigns] = useState(false);
+  const [importingAzure, setImportingAzure] = useState(false);
   const [storageOk, setStorageOk] = useState(true);
   const result = useMemo(() => computePlan(plan), [plan]);
   const counts = countIssues(result);
@@ -86,7 +88,18 @@ export default function App() {
     setSelected(fresh.regions[0].id);
   };
 
-  const renameSavedDesign = (id: string, name: string) => {
+  /** Open an imported Azure network, saved straight away as a new design. */
+  const openImported = (imported: PlanSpec) => {
+    if (unsaved && !window.confirm('The current plan has unsaved changes. Open the imported network without saving them?')) return;
+    const design = createDesign(imported, loadNaming());
+    setDesigns([...designs, design]);
+    setPlan(imported);
+    setActiveDesignId(design.id);
+    setSelected(imported.regions[0]?.id ?? ALL);
+    setImportingAzure(false);
+  };
+
+  const renameSavedDesign =(id: string, name: string) => {
     setDesigns(designs.map((d) => (d.id === id ? renameDesign(d, name) : d)));
     // Keep the open plan's title in step, so a rename alone isn't an unsaved change.
     if (id === activeDesignId) setPlan({ ...plan, name });
@@ -156,6 +169,9 @@ export default function App() {
             {counts.errors} errors · {counts.warnings} warnings
           </span>
           <button onClick={() => setShowDesigns(true)}>Designs{designs.length ? ` (${designs.length})` : ''}</button>
+          <button title="Load an existing Azure network from Azure CLI or PowerShell output" onClick={() => setImportingAzure(true)}>
+            Import from Azure
+          </button>
           <button className="primary" onClick={() => setExporting(true)}>
             Export IaC
           </button>
@@ -240,6 +256,7 @@ export default function App() {
         )}
       </main>
       {exporting && <ExportDialog plan={plan} result={result} onClose={() => setExporting(false)} />}
+      {importingAzure && <ImportAzureDialog onImport={openImported} onClose={() => setImportingAzure(false)} />}
       {showDesigns && (
         <DesignsDialog
           plan={plan}
