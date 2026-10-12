@@ -7,6 +7,7 @@ import {
   platformLayoutOf,
   relocateRegion,
   setPlatformLayout,
+  setTopology,
   subnet,
 } from './defaults';
 import { formatCidr } from './ipv4';
@@ -74,6 +75,51 @@ describe('computePlan', () => {
       'landing-zone',
       'landing-zone',
     ]);
+  });
+
+  it('puts platform subnets in the hub, and back out into spokes', () => {
+    const separate = makeRegion('eastus2', 'hub-spoke');
+    const inHub = setPlatformLayout(separate, 'hub');
+    expect(platformLayoutOf(inHub)).toBe('hub');
+    expect(inHub.spokes.map((s) => s.name)).toEqual(['corp-eus2-001-vnet', 'online-eus2-001-vnet']);
+    expect(inHub.spokes[0]).toBe(separate.spokes[3]);
+
+    const plan = defaultPlan();
+    plan.regions[0] = inHub;
+    const region = computePlan(plan).regions[0];
+    expect(countIssues(region)).toEqual({ errors: 0, warnings: 0 });
+    expect(region.hub.subnets.slice(-3).map((s) => `${s.name} ${formatCidr(s.cidr!)}`)).toEqual([
+      'identity-snet 10.0.3.0/26',
+      'management-snet 10.0.3.64/26',
+      'security-snet 10.0.3.128/26',
+    ]);
+    // The landing zones move up into the space the platform VNets left.
+    expect(formatCidr(region.spokes[0].cidr!)).toBe('10.0.4.0/22');
+
+    const combined = setPlatformLayout(inHub, 'combined');
+    expect(platformLayoutOf(combined)).toBe('combined');
+    expect(combined.hub.subnets).toHaveLength(separate.hub.subnets.length);
+    expect(combined.spokes.map((s) => s.role)).toEqual(['platform', 'landing-zone', 'landing-zone']);
+  });
+
+  it('keeps platform subnets out of Virtual WAN hubs', () => {
+    const inHub = makeRegion('eastus2', 'hub-spoke', 'hub');
+    expect(platformLayoutOf(inHub)).toBe('hub');
+
+    const vwan = setTopology(inHub, 'vwan');
+    expect(vwan.hub.subnets).toEqual([]);
+    expect(platformLayoutOf(vwan)).toBe('separate');
+    expect(vwan.spokes.map((s) => s.role)).toEqual(['identity', 'management', 'security', 'landing-zone', 'landing-zone']);
+
+    expect(platformLayoutOf(setPlatformLayout(vwan, 'hub'))).toBe('separate');
+    expect(platformLayoutOf(makeRegion('eastus2', 'vwan', 'hub'))).toBe('separate');
+  });
+
+  it('places hub platform subnets automatically when their slots are taken', () => {
+    const region = makeRegion('eastus2', 'hub-spoke');
+    region.hub.subnets.push({ ...subnet('custom-snet', 24), offset: 768 });
+    const inHub = setPlatformLayout(region, 'hub');
+    expect(inHub.hub.subnets.filter((s) => s.platform).map((s) => s.offset)).toEqual([undefined, undefined, undefined]);
   });
 
   it('infers spoke roles for plans saved before roles existed', () => {

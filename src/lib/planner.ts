@@ -33,6 +33,8 @@ export interface SubnetSpec {
    * the visual editor. Relative, so the layout survives the VNet moving.
    */
   offset?: number;
+  /** Put in the hub by the "hub" platform layout; replaced when the region's platform layout changes. */
+  platform?: boolean;
 }
 
 /** A free block the visual editor has divided out, relative to the VNet base. */
@@ -44,8 +46,11 @@ export interface Split {
 /** What a spoke is for. Platform roles are swapped when the region's platform layout changes. */
 export type VnetRole = 'platform' | 'identity' | 'management' | 'security' | 'landing-zone';
 
-/** Platform landing zones as separate identity/management/security VNets, or one combined VNet. */
-export type PlatformLayout = 'separate' | 'combined';
+/**
+ * Platform landing zones as separate identity/management/security VNets, one
+ * combined VNet, or subnets in the hub VNet itself (hub & spoke only).
+ */
+export type PlatformLayout = 'separate' | 'combined' | 'hub';
 
 export interface VnetSpec {
   id: string;

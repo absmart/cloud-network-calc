@@ -1,8 +1,10 @@
 // Starting templates, loosely following the Azure Landing Zone reference
 // architecture: a connectivity hub per region, platform spokes (identity,
-// management and security, separate or combined), and corp and online
-// landing zone spokes.
+// management and security: separate, combined or in the hub), and corp and
+// online landing zone spokes.
 
+import { VWAN_HUB_RECOMMENDED_PREFIX } from './azure';
+import { blockSize } from './ipv4';
 import type { PlanSpec, PlatformLayout, RegionSpec, SubnetSpec, Topology, VnetRole, VnetSpec } from './planner';
 import { regionCode } from './naming';
 import { AZURE_REGIONS, findRegion, regionDisplayName } from './regions';
@@ -68,25 +70,70 @@ export const SPOKE_TEMPLATES: Record<SpokeTemplate, { label: string; make: (loc:
   },
 };
 
-const PLATFORM_TEMPLATES: Record<PlatformLayout, SpokeTemplate[]> = {
+const PLATFORM_TEMPLATES: Record<Exclude<PlatformLayout, 'hub'>, SpokeTemplate[]> = {
   separate: ['identity', 'management', 'security'],
   combined: ['platform'],
 };
 
+/**
+ * Platform subnets for the "hub" layout, at offsets in the hub's fourth /24,
+ * which the default /22 hub leaves free.
+ */
+const HUB_PLATFORM_SUBNETS: [name: string, prefix: number, offset: number][] = [
+  ['identity-snet', 26, 768],
+  ['management-snet', 26, 768 + 64],
+  ['security-snet', 26, 768 + 128],
+];
+
 export const isPlatformVnet = (v: VnetSpec) => !!v.role && v.role !== 'landing-zone';
 
 export function platformLayoutOf(region: RegionSpec): PlatformLayout {
+  if (region.hub.subnets.some((s) => s.platform)) return 'hub';
   return region.spokes.some((v) => v.role === 'platform') ? 'combined' : 'separate';
 }
 
 /**
- * Switch a region between separate identity/management/security VNets and one
- * combined platform VNet. Replaces the platform spokes (any edits to them are
- * lost); landing zone spokes are kept.
+ * Add the platform subnets to a hub at their usual offsets. One whose slot
+ * doesn't fit the hub, or is taken by a placed subnet, is placed automatically.
+ */
+function withPlatformSubnets(hub: VnetSpec): VnetSpec {
+  const taken = hub.subnets.filter((s) => s.offset !== undefined).map((s) => [s.offset!, s.offset! + blockSize(s.prefix)]);
+  const added = HUB_PLATFORM_SUBNETS.map(([name, prefix, offset]): SubnetSpec => {
+    const end = offset + blockSize(prefix);
+    const fits = end <= blockSize(hub.prefix) && !taken.some(([start, stop]) => offset < stop && start < end);
+    return { ...subnet(name, prefix), platform: true, ...(fits && { offset }) };
+  });
+  return { ...hub, subnets: [...hub.subnets, ...added] };
+}
+
+/**
+ * Switch a region between separate identity/management/security VNets, one
+ * combined platform VNet, and platform subnets in the hub. Replaces the
+ * platform spokes and hub platform subnets (any edits to them are lost);
+ * landing zone spokes and the hub's other subnets are kept. A Virtual WAN hub
+ * can't hold subnets, so "hub" falls back to separate VNets there.
  */
 export function setPlatformLayout(region: RegionSpec, layout: PlatformLayout): RegionSpec {
-  const platform = PLATFORM_TEMPLATES[layout].map((t) => SPOKE_TEMPLATES[t].make(region.location));
-  return { ...region, spokes: [...platform, ...region.spokes.filter((v) => !isPlatformVnet(v))] };
+  const hub = { ...region.hub, subnets: region.hub.subnets.filter((s) => !s.platform) };
+  const landingZones = region.spokes.filter((v) => !isPlatformVnet(v));
+  if (layout === 'hub' && region.topology === 'hub-spoke')
+    return { ...region, hub: withPlatformSubnets(hub), spokes: landingZones };
+  const platform = PLATFORM_TEMPLATES[layout === 'hub' ? 'separate' : layout].map((t) =>
+    SPOKE_TEMPLATES[t].make(region.location),
+  );
+  return { ...region, hub, spokes: [...platform, ...landingZones] };
+}
+
+/**
+ * Swap in a hub of the right shape for the topology. A virtual hub keeps the
+ * old hub's size if that's at least the recommended /23. Platform subnets in
+ * the old hub move out to separate VNets, since a virtual hub has no subnets.
+ */
+export function setTopology(region: RegionSpec, topology: Topology): RegionSpec {
+  const hub = makeHub(region.location, topology);
+  if (topology === 'vwan') hub.prefix = Math.min(region.hub.prefix, VWAN_HUB_RECOMMENDED_PREFIX);
+  const next = { ...region, topology, hub };
+  return platformLayoutOf(region) === 'hub' && topology === 'vwan' ? setPlatformLayout(next, 'separate') : next;
 }
 
 /** Give spokes saved before roles existed a role, inferred from their template name. */
@@ -124,17 +171,16 @@ export function makeHub(location: string, topology: Topology): VnetSpec {
 export const REGION_PREFIX = 16;
 
 export function makeRegion(location: string, topology: Topology, platform: PlatformLayout = 'separate'): RegionSpec {
-  return {
+  const region: RegionSpec = {
     id: newId(),
     name: regionDisplayName(location),
     location,
     prefix: REGION_PREFIX,
     topology,
     hub: makeHub(location, topology),
-    spokes: [...PLATFORM_TEMPLATES[platform], 'corp', 'online'].map((t) =>
-      SPOKE_TEMPLATES[t as SpokeTemplate].make(location),
-    ),
+    spokes: (['corp', 'online'] as const).map((t) => SPOKE_TEMPLATES[t].make(location)),
   };
+  return setPlatformLayout(region, platform);
 }
 
 /** The first region of a plan is East US 2 unless that's already taken. */

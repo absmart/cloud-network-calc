@@ -1,13 +1,12 @@
 import type { CSSProperties } from 'react';
-import { VWAN_HUB_RECOMMENDED_PREFIX } from '../lib/azure';
 import {
   SPOKE_TEMPLATES,
   type SpokeTemplate,
   isPlatformVnet,
-  makeHub,
   platformLayoutOf,
   relocateRegion,
   setPlatformLayout,
+  setTopology,
 } from '../lib/defaults';
 import { type Cidr, availableBlocks, blockSize, formatCidr, parseCidr } from '../lib/ipv4';
 import { findRegion, regionsByGeography } from '../lib/regions';
@@ -49,14 +48,7 @@ export function RegionCard(props: {
     onChange({ ...spec, prefix, fixed: formatCidr({ base: pin.cidr.base - (pin.cidr.base % size), prefix }) });
   };
 
-  const setTopology = (topology: Topology) => {
-    // Swap in a hub of the right shape. A virtual hub keeps the old hub's size
-    // if that's at least the recommended /23.
-    const hub = makeHub(spec.location, topology);
-    if (topology === 'vwan') hub.prefix = Math.min(spec.hub.prefix, VWAN_HUB_RECOMMENDED_PREFIX);
-    onChange({ ...spec, topology, hub });
-  };
-
+  const platformLayout = platformLayoutOf(spec);
   const updateSpoke = (index: number, vnet: VnetSpec) =>
     onChange({ ...spec, spokes: spec.spokes.map((s, i) => (i === index ? vnet : s)) });
 
@@ -94,7 +86,7 @@ export function RegionCard(props: {
             )}
           </span>
           <span className="region-meta">
-            {spec.hub.name} · {spec.spokes.length} spokes · platform {platformLayoutOf(spec)}
+            {spec.hub.name} · {spec.spokes.length} spokes · platform {platformLayout === 'hub' ? 'in hub' : platformLayout}
           </span>
           <button className="icon" title="Remove region" onClick={props.onRemove}>
             ✕
@@ -149,19 +141,22 @@ export function RegionCard(props: {
           </label>
           <label>
             Topology
-            <select value={spec.topology} onChange={(e) => setTopology(e.target.value as Topology)}>
+            <select value={spec.topology} onChange={(e) => onChange(setTopology(spec, e.target.value as Topology))}>
               <option value="hub-spoke">Hub &amp; spoke</option>
               <option value="vwan">Virtual WAN</option>
             </select>
           </label>
-          <label title="Separate identity, management and security VNets, or one shared platform VNet. Switching replaces the platform VNets; landing zones are kept.">
+          <label title="Separate identity, management and security VNets, one shared platform VNet, or platform subnets in the hub VNet. Switching replaces the platform VNets and hub platform subnets; landing zones are kept.">
             Platform networks
             <select
-              value={platformLayoutOf(spec)}
+              value={platformLayout}
               onChange={(e) => onChange(setPlatformLayout(spec, e.target.value as PlatformLayout))}
             >
               <option value="separate">Separate: identity / management / security</option>
               <option value="combined">Combined: one platform VNet</option>
+              <option value="hub" disabled={spec.topology === 'vwan'}>
+                In the hub: platform subnets in the hub VNet{spec.topology === 'vwan' ? ' (hub & spoke only)' : ''}
+              </option>
             </select>
           </label>
         </div>
