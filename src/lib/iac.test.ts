@@ -39,9 +39,9 @@ describe('IaC export', () => {
     const m = model(plan);
     expect(m.vnets).toHaveLength(9); // 2 hubs + 2 landing zones + 5 spokes in Central US
     expect(m.vnets[0].subnets.slice(-3)).toEqual([
-      { name: 'identity-prd-eus2-01-snet', prefix: '10.0.3.0/26' },
-      { name: 'management-prd-eus2-01-snet', prefix: '10.0.3.64/26' },
-      { name: 'security-prd-eus2-01-snet', prefix: '10.0.3.128/26' },
+      { name: 'identity-prd-eus2-01-snet', prefix: '10.0.3.0/27' },
+      { name: 'management-prd-eus2-01-snet', prefix: '10.0.3.32/27' },
+      { name: 'security-prd-eus2-01-snet', prefix: '10.0.3.64/27' },
     ]);
     expect(m.omitted).toEqual([]);
   });

@@ -89,9 +89,9 @@ describe('computePlan', () => {
     const region = computePlan(plan).regions[0];
     expect(countIssues(region)).toEqual({ errors: 0, warnings: 0 });
     expect(region.hub.subnets.slice(-3).map((s) => `${s.name} ${formatCidr(s.cidr!)}`)).toEqual([
-      'identity-snet 10.0.3.0/26',
-      'management-snet 10.0.3.64/26',
-      'security-snet 10.0.3.128/26',
+      'identity-snet 10.0.3.0/27',
+      'management-snet 10.0.3.32/27',
+      'security-snet 10.0.3.64/27',
     ]);
     // The landing zones move up into the space the platform VNets left.
     expect(formatCidr(region.spokes[0].cidr!)).toBe('10.0.4.0/22');

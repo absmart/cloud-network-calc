@@ -14,7 +14,7 @@ A browser app for planning IP address space for Azure Landing Zone network desig
 - **Platform networks** per region, either separate, combined or in the hub:
   - separate: identity, management and security VNets, each a /24
   - combined: one platform VNet with an identity, management and security subnet
-  - in the hub (hub & spoke only): identity, management and security /26 subnets in the hub VNet's fourth /24, with no platform VNets
+  - in the hub (hub & spoke only): identity, management and security /27 subnets in the hub VNet's fourth /24, with no platform VNets
   
   Switching replaces only the platform VNets and the hub's platform subnets; corp and online landing zones and the other hub subnets are kept. Changing an in-the-hub region to Virtual WAN moves its platform subnets out to separate VNets, since a virtual hub has no subnets.
 - **Spoke templates** for identity, management, security, combined platform, corp and online landing zones.

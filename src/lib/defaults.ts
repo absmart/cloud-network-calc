@@ -33,11 +33,11 @@ export const SPOKE_TEMPLATES: Record<SpokeTemplate, { label: string; make: (loc:
   },
   management: {
     label: 'Management (platform)',
-    make: (loc) => vnet(`management-${regionCode(loc)}-vnet`, 24, [subnet('management-snet', 26)], 'management'),
+    make: (loc) => vnet(`management-${regionCode(loc)}-vnet`, 24, [subnet('management-snet', 27)], 'management'),
   },
   security: {
     label: 'Security (platform)',
-    make: (loc) => vnet(`security-${regionCode(loc)}-vnet`, 24, [subnet('security-snet', 26)], 'security'),
+    make: (loc) => vnet(`security-${regionCode(loc)}-vnet`, 24, [subnet('security-snet', 27)], 'security'),
   },
   platform: {
     label: 'Platform: identity + management + security',
@@ -45,7 +45,7 @@ export const SPOKE_TEMPLATES: Record<SpokeTemplate, { label: string; make: (loc:
       vnet(
         `platform-${regionCode(loc)}-vnet`,
         24,
-        [subnet('identity-snet', 26), subnet('management-snet', 26), subnet('security-snet', 26)],
+        [subnet('identity-snet', 27), subnet('management-snet', 27), subnet('security-snet', 27)],
         'platform',
       ),
   },
@@ -80,9 +80,9 @@ const PLATFORM_TEMPLATES: Record<Exclude<PlatformLayout, 'hub'>, SpokeTemplate[]
  * which the default /22 hub leaves free.
  */
 const HUB_PLATFORM_SUBNETS: [name: string, prefix: number, offset: number][] = [
-  ['identity-snet', 26, 768],
-  ['management-snet', 26, 768 + 64],
-  ['security-snet', 26, 768 + 128],
+  ['identity-snet', 27, 768],
+  ['management-snet', 27, 768 + 32],
+  ['security-snet', 27, 768 + 64],
 ];
 
 export const isPlatformVnet = (v: VnetSpec) => !!v.role && v.role !== 'landing-zone';
