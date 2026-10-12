@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { allocate, availableBlocks, formatCidr, formatIp, freeBlocks, parseCidr, parseIp, rangeToCidrs } from './ipv4';
+import {
+  allocate,
+  availableBlocks,
+  formatCidr,
+  formatIp,
+  freeBlocks,
+  parseCidr,
+  parseIp,
+  rangeToCidrs,
+  supernet,
+} from './ipv4';
 
 const c = (s: string) => {
   const r = parseCidr(s);
@@ -99,5 +109,14 @@ describe('free space', () => {
       '10.0.0.0/24',
       '10.0.2.0/23',
     ]);
+  });
+});
+
+describe('supernet', () => {
+  it('finds the smallest block covering every range', () => {
+    expect(formatCidr(supernet([c('10.0.4.0/24')]))).toBe('10.0.4.0/24');
+    expect(formatCidr(supernet([c('10.0.0.0/24'), c('10.0.1.0/24')]))).toBe('10.0.0.0/23');
+    expect(formatCidr(supernet([c('10.0.1.0/24'), c('10.0.2.0/24')]))).toBe('10.0.0.0/22');
+    expect(formatCidr(supernet([c('10.0.0.0/8'), c('192.168.0.0/16')]))).toBe('0.0.0.0/0');
   });
 });

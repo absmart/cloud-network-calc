@@ -59,6 +59,15 @@ export const contains = (outer: Cidr, inner: Cidr) =>
 
 export const overlaps = (a: Cidr, b: Cidr) => a.base < endOf(b) && b.base < endOf(a);
 
+/** The smallest single block that contains every one of `cidrs` (which must not be empty). */
+export function supernet(cidrs: Cidr[]): Cidr {
+  const start = Math.min(...cidrs.map((c) => c.base));
+  const end = Math.max(...cidrs.map(endOf));
+  let prefix = Math.min(...cidrs.map((c) => c.prefix));
+  while (prefix > 0 && start - (start % blockSize(prefix)) + blockSize(prefix) < end) prefix--;
+  return { base: start - (start % blockSize(prefix)), prefix };
+}
+
 /** Split the half-open range [start, end) into the fewest aligned CIDR blocks. */
 export function rangeToCidrs(start: number, end: number): Cidr[] {
   const out: Cidr[] = [];
