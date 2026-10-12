@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { type IacFile, type IacFormat, buildIacModel, generateIacFiles } from '../lib/iac';
+import { type IacFormat, TERRAGRUNT_ROOT, buildIacModel, generateIacFiles } from '../lib/iac';
 import { DEFAULT_NAMING, type NamingOptions } from '../lib/naming';
 import { type PlanResult, type PlanSpec, countIssues } from '../lib/planner';
+import { createZip } from '../lib/zip';
 
-const FORMAT_LABEL: Record<IacFormat, string> = { bicep: 'Bicep', terraform: 'Terraform' };
+const FORMAT_LABEL: Record<IacFormat, string> = { bicep: 'Bicep', terraform: 'Terraform', terragrunt: 'Terragrunt' };
 const NAMING_KEY = 'alz-cidr-planner:naming';
+
+const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
 function loadNaming(): NamingOptions {
   try {
@@ -16,18 +19,20 @@ function loadNaming(): NamingOptions {
   return DEFAULT_NAMING;
 }
 
-/** Shows the plan as Bicep or Terraform, ready to copy or download. */
+/** Shows the plan as Bicep, Terraform or Terragrunt, ready to copy or download. */
 export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClose: () => void }) {
   const [format, setFormat] = useState<IacFormat>('bicep');
   const [naming, setNaming] = useState<NamingOptions>(loadNaming);
   const [copied, setCopied] = useState(false);
-  // 0 = template, 1 = example variables file.
   const [fileIndex, setFileIndex] = useState(0);
   const files = useMemo(
     () => generateIacFiles(format, props.plan, props.result, naming),
     [format, props.plan, props.result, naming],
   );
   const file = files[fileIndex] ?? files[0];
+  // Terragrunt's files live in folders, so they download together as a zip.
+  const inFolders = files.some((f) => f.name.includes('/'));
+  const zip = () => createZip(files.map((f) => ({ name: `${TERRAGRUNT_ROOT}/${f.name}`, content: f.content })));
   const example = useMemo(() => {
     const m = buildIacModel(props.plan, props.result, naming);
     return [m.vnets[0]?.name, m.vnets[0]?.subnets.find((s) => s.name.endsWith('-snet'))?.name, m.resourceGroup]
@@ -61,11 +66,11 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
     }
   };
 
-  const download = (f: IacFile) => {
-    const url = URL.createObjectURL(new Blob([f.content], { type: 'text/plain' }));
+  const save = (name: string, data: BlobPart, type = 'text/plain') => {
+    const url = URL.createObjectURL(new Blob([data], { type }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = f.name;
+    a.download = name;
     a.click();
     // Revoking straight away can cancel the download in some browsers.
     setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -78,7 +83,14 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
           <h2>Export infrastructure as code</h2>
           <div className="tabs">
             {(Object.keys(FORMAT_LABEL) as IacFormat[]).map((f) => (
-              <button key={f} className={format === f ? 'active' : ''} onClick={() => setFormat(f)}>
+              <button
+                key={f}
+                className={format === f ? 'active' : ''}
+                onClick={() => {
+                  setFormat(f);
+                  setFileIndex(0);
+                }}
+              >
                 {FORMAT_LABEL[f]}
               </button>
             ))}
@@ -93,6 +105,8 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
           Hub &amp; spoke hubs are peered with their spokes and with each other. The template is generic, with every input a
           parameter or variable; this plan's values go in the variables file, so the same template can be reused for other plans
           and environments.
+          {format === 'terragrunt' &&
+            ' Terragrunt adds a root.hcl for remote state and the provider, with this plan as the inputs of live/<env>/alz-network; it downloads as a .zip that keeps the folders.'}
         </p>
         <div className="row naming">
           <span className="muted">
@@ -133,17 +147,23 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
               onClick={() => setFileIndex(i)}
             >
               {f.name}
-              <span className="muted">{i === 0 ? 'reusable template' : 'values for this plan'}</span>
+              <span className="muted">{f.description}</span>
             </button>
           ))}
         </div>
         <pre className="code">{file.content}</pre>
         <div className="row footer">
           <button onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
-          <button onClick={() => download(file)}>Download {file.name}</button>
-          <button className="primary" onClick={() => files.forEach(download)}>
-            Download all ({files.length} files)
-          </button>
+          <button onClick={() => save(baseName(file.name), file.content)}>Download {baseName(file.name)}</button>
+          {inFolders ? (
+            <button className="primary" onClick={() => save(`${TERRAGRUNT_ROOT}.zip`, zip(), 'application/zip')}>
+              Download {TERRAGRUNT_ROOT}.zip ({files.length} files)
+            </button>
+          ) : (
+            <button className="primary" onClick={() => files.forEach((f) => save(f.name, f.content))}>
+              Download all ({files.length} files)
+            </button>
+          )}
         </div>
       </div>
     </div>

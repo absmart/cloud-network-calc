@@ -1,8 +1,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SPOKE_TEMPLATES, defaultPlan, makeRegion } from './defaults';
-import { type IacFormat, buildIacModel, generateIacFiles, toBicepParams, toTfvars } from './iac';
+import { type IacFormat, TERRAGRUNT_ROOT, buildIacModel, generateIacFiles, toBicepParams, toTfvars } from './iac';
+import { crc32, createZip } from './zip';
 import type { NamingOptions } from './naming';
 import { type PlanSpec, computePlan } from './planner';
 
@@ -163,17 +164,65 @@ describe('IaC export', () => {
     expect(toBicepParams(m)).toContain(`'it\\'s a "\\\${name}"'`);
   });
 
+  it('lays out a Terragrunt stack around the same module', () => {
+    const naming = { app: 'network', environment: 'dev', instance: '01' };
+    const tg = files('terragrunt', defaultPlan(), naming);
+    expect(tg.map((f) => f.name)).toEqual([
+      'root.hcl',
+      'modules/alz-network/main.tf',
+      'live/dev/alz-network/terragrunt.hcl',
+      'README.md',
+    ]);
+    const [root, module, live] = tg.map((f) => f.content);
+    expect(root).toContain('backend = "azurerm"');
+    expect(root).toContain('generate "provider"');
+    // The module is the Terraform template without the provider and subscription variable.
+    expect(module).not.toContain('provider "azurerm"');
+    expect(module).not.toContain('variable "subscription_id"');
+    expect(module).toContain('variable "vnets" {');
+    expect(module.replace(/^#.*\n/gm, '')).toBe(
+      files('terraform', defaultPlan())[0]
+        .content.replace(/^#.*\n/gm, '')
+        .replace(/\nprovider "azurerm" \{[^}]*\{\}[^}]*\}\n/, '')
+        .replace(/\nvariable "subscription_id" \{[^}]*\}\n/, ''),
+    );
+    expect(live).toContain('path = find_in_parent_folders("root.hcl")');
+    expect(live).toContain('source = "${get_parent_terragrunt_dir("root")}/modules//alz-network"');
+    expect(live).toContain('inputs = {\n  resource_group_name     = "network-deveus201-rg"');
+    expect(live).toContain('    "hub-deveus201-vnet" = {');
+    expect(live).not.toContain('subscription_id');
+  });
+
+  it('zips files with their folders', () => {
+    const zip = createZip([
+      { name: 'a/b.txt', content: 'hello' },
+      { name: 'c.txt', content: 'é' },
+    ]);
+    const view = new DataView(zip.buffer);
+    expect(view.getUint32(0, true)).toBe(0x04034b50);
+    expect(view.getUint32(zip.length - 22, true)).toBe(0x06054b50);
+    expect(view.getUint16(zip.length - 22 + 10, true)).toBe(2);
+    expect(crc32(new TextEncoder().encode('123456789'))).toBe(0xcbf43926);
+  });
+
   // Set IAC_OUT_DIR to write sample files for `az bicep build` / `terraform validate`.
   it.runIf(!!process.env.IAC_OUT_DIR)('writes sample files', () => {
     for (const [name, plan] of [
       ['hub-spoke', defaultPlan()],
       ['vwan', vwanPlan()],
     ] as const) {
-      for (const format of ['bicep', 'terraform'] as const) {
+      for (const format of ['bicep', 'terraform', 'terragrunt'] as const) {
         const dir = join(process.env.IAC_OUT_DIR!, name, format);
-        mkdirSync(dir, { recursive: true });
-        for (const file of generateIacFiles(format, plan, computePlan(plan))) writeFileSync(join(dir, file.name), file.content);
+        for (const file of generateIacFiles(format, plan, computePlan(plan))) {
+          mkdirSync(dirname(join(dir, file.name)), { recursive: true });
+          writeFileSync(join(dir, file.name), file.content);
+        }
       }
+      const tg = generateIacFiles('terragrunt', plan, computePlan(plan));
+      writeFileSync(
+        join(process.env.IAC_OUT_DIR!, name, `${TERRAGRUNT_ROOT}.zip`),
+        createZip(tg.map((f) => ({ name: `${TERRAGRUNT_ROOT}/${f.name}`, content: f.content }))),
+      );
     }
   });
 });

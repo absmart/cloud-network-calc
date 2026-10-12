@@ -35,7 +35,15 @@ A browser app for planning IP address space for Azure Landing Zone network desig
     - peerings, with their forwarded-traffic and gateway-transit options
     - the Virtual WAN, its hubs (with SKUs) and its hub connections
   
-  Copy the variables file for each environment (`dev.tfvars`, ...). Together they contain:
+  Copy the variables file for each environment (`dev.tfvars`, ...).
+  
+  A **Terragrunt** option downloads `alz-network-terragrunt.zip`, which contains:
+  - `root.hcl`: azurerm remote state in Azure Storage, set by environment variables `TG_STATE_RESOURCE_GROUP`, `TG_STATE_STORAGE_ACCOUNT` and `TG_STATE_CONTAINER`, plus a generated provider that reads `ARM_SUBSCRIPTION_ID`
+  - `modules/alz-network/main.tf`: the same reusable template, without the provider block
+  - `live/<env>/alz-network/terragrunt.hcl`: this plan as `inputs`
+  - a README with the deploy steps
+  
+  Together they contain:
   - every allocated VNet and subnet, with DNS resolver subnets delegated
   - for hub & spoke: hub↔spoke peerings both ways, plus hub-to-hub peerings between regions
   - for Virtual WAN: the vWAN, its hubs and its spoke connections
