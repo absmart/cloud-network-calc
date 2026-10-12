@@ -24,7 +24,9 @@ To produce real IaC samples for checking with `az bicep build` or `terraform val
 
 ## Deploy
 
-The app is hosted on Azure Static Web Apps (`swa-cloud-network-calc` in resource group `rg-cloud-network-calc`, https://ambitious-sea-0d5e2730f.5.azurestaticapps.net). It is **not** linked to GitHub, so pushing doesn't deploy. Build, then deploy `dist/` with the SWA CLI using the deployment token from a logged-in Azure CLI:
+The app is hosted on Azure Static Web Apps (`swa-cloud-network-calc` in resource group `rg-cloud-network-calc`, https://ambitious-sea-0d5e2730f.5.azurestaticapps.net). Every push to `main` deploys to production: [.github/workflows/deploy.yml](.github/workflows/deploy.yml) runs the tests, builds and uploads `dist/`, using the repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`. A failing test stops the deploy. The workflow can also be run by hand from the Actions tab.
+
+To deploy by hand from a machine with a logged-in Azure CLI (for example, to deploy something that isn't on `main`):
 
 ```bash
 npm run build
