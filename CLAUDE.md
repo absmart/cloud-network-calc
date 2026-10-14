@@ -24,7 +24,10 @@ To produce real IaC samples for checking with `az bicep build` or `terraform val
 
 ## Deploy
 
-The app is hosted on Azure Static Web Apps (`swa-cloud-network-calc` in resource group `rg-cloud-network-calc`, https://ambitious-sea-0d5e2730f.5.azurestaticapps.net). Every push to `main` deploys to production: [.github/workflows/deploy.yml](.github/workflows/deploy.yml) runs the tests, builds and uploads `dist/`, using the repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`. A failing test stops the deploy. The workflow can also be run by hand from the Actions tab.
+The app is hosted on Azure Static Web Apps (`swa-cloud-network-calc` in resource group `rg-cloud-network-calc`, https://ambitious-sea-0d5e2730f.5.azurestaticapps.net). [.github/workflows/deploy.yml](.github/workflows/deploy.yml) runs the tests, builds and uploads `dist/`, using the repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`. A failing test stops the deploy. The workflow can also be run by hand from the Actions tab.
+
+- Work goes on a branch and into `main` through a pull request. Each PR deploys to its own preview environment, and the action comments its URL on the PR. Every push to the PR updates it, and closing or merging the PR removes it. The Free plan allows 3 preview environments at once, and their URLs are public.
+- A push to `main` (normally merging a PR) deploys to production.
 
 To deploy by hand from a machine with a logged-in Azure CLI (for example, to deploy something that isn't on `main`):
 
