@@ -41,6 +41,7 @@ export function Menu(props: { label: string; title: string; items: MenuItem[] })
       <button
         ref={button}
         title={props.title}
+        aria-label={props.title}
         aria-haspopup="menu"
         aria-expanded={open}
         className={open ? 'active' : ''}
