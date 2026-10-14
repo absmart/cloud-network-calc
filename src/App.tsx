@@ -24,6 +24,7 @@ import {
   renameDesign,
   updateDesign,
 } from './lib/designs';
+import { record, redo, startHistory, undo } from './lib/history';
 import { formatCidr } from './lib/ipv4';
 import { type PlanSpec, type RegionSpec, computePlan, countIssues } from './lib/planner';
 import { type SharedDesign, decodeDesign, isShareFragment, shareUrl } from './lib/shareLink';
@@ -37,7 +38,14 @@ function loadPlan(): PlanSpec {
 }
 
 export default function App() {
-  const [plan, setPlan] = useState<PlanSpec>(loadPlan);
+  // The plan with its undo history. Edits go through setPlan; opening a
+  // different plan (a design, an import, a share link) starts a new history.
+  const [planHistory, setHistory] = useState(() => startHistory(loadPlan()));
+  const plan = planHistory.present;
+  const setPlan = (next: PlanSpec) => setHistory((h) => record(h, next));
+  const replacePlan = (next: PlanSpec) => setHistory(startHistory(next));
+  const undoPlan = () => setHistory(undo);
+  const redoPlan = () => setHistory(redo);
   const [view, setView] = useState<'design' | 'table'>('design');
   const [exporting, setExporting] = useState(false);
   const [showDesigns, setShowDesigns] = useState(false);
@@ -88,7 +96,7 @@ export default function App() {
     const design = designs.find((d) => d.id === id);
     if (!design) return;
     const opened = migratePlan(JSON.parse(JSON.stringify(design.plan)));
-    setPlan(opened);
+    replacePlan(opened);
     setActiveDesignId(id);
     setSelected(opened.regions[0]?.id ?? ALL);
     writeJson(STORAGE_KEYS.naming, design.naming);
@@ -96,7 +104,7 @@ export default function App() {
 
   const newDesign = () => {
     const fresh = defaultPlan();
-    setPlan(fresh);
+    replacePlan(fresh);
     setActiveDesignId(null);
     setSelected(fresh.regions[0].id);
   };
@@ -106,7 +114,7 @@ export default function App() {
     if (unsaved && !window.confirm('The current plan has unsaved changes. Open the imported network without saving them?')) return;
     const design = createDesign(imported, loadNaming());
     setDesigns([...designs, design]);
-    setPlan(imported);
+    replacePlan(imported);
     setActiveDesignId(design.id);
     setSelected(imported.regions[0]?.id ?? ALL);
     setImportingAzure(false);
@@ -130,7 +138,7 @@ export default function App() {
   }, []);
 
   const openShared = (shared: SharedDesign, save: boolean) => {
-    setPlan(shared.plan);
+    replacePlan(shared.plan);
     writeJson(STORAGE_KEYS.naming, shared.naming);
     if (save) {
       const design = createDesign(shared.plan, shared.naming);
@@ -160,11 +168,19 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Ctrl/Cmd+S saves the design instead of the web page.
+    // Ctrl/Cmd+S saves the design instead of the web page. Ctrl/Cmd+Z undoes
+    // and Ctrl/Cmd+Shift+Z or Ctrl+Y redoes plan edits, also while typing in
+    // the plan's fields, but not in a dialog, whose fields aren't the plan.
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === 's') {
         e.preventDefault();
         saveDesign();
+      } else if ((key === 'z' || key === 'y') && !document.querySelector('.overlay')) {
+        e.preventDefault();
+        if (key === 'y' || e.shiftKey) redoPlan();
+        else undoPlan();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -211,6 +227,14 @@ export default function App() {
             Root address space
             <input className="root" value={plan.root} onChange={(e) => setPlan({ ...plan, root: e.target.value })} />
           </label>
+          <div className="tabs history">
+            <button title="Undo (Ctrl+Z)" aria-label="Undo" disabled={planHistory.past.length === 0} onClick={undoPlan}>
+              ↶
+            </button>
+            <button title="Redo (Ctrl+Y)" aria-label="Redo" disabled={planHistory.future.length === 0} onClick={redoPlan}>
+              ↷
+            </button>
+          </div>
           <div className="tabs">
             <button className={view === 'design' ? 'active' : ''} onClick={() => setView('design')}>
               Design

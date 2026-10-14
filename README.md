@@ -27,6 +27,7 @@ A browser app for planning IP address space for Azure Landing Zone network desig
   - non-private or forbidden root ranges
   - overlaps and overflow
 - **Table view** with first and last addresses, plus a "Copy as CSV" button.
+- **Undo and redo** (↶ ↷, Ctrl+Z and Ctrl+Y or Ctrl+Shift+Z) for every plan edit, including platform layout switches and Auto-pack. Edits within a second of each other, like typing a name, are one step. Opening a design, an import or a share link starts a fresh history.
 - **Export IaC** generates two files for Bicep or for Terraform (azurerm 4.x), ready to copy or download:
   - a **reusable template**, `alz-network.bicep` or `main.tf`. Every input is a typed parameter or variable, with no names, CIDRs or regions hard-coded, so the same template deploys any plan.
   - a **variables file** for the chosen environment, `alz-network.prd.bicepparam` or `prd.tfvars`. It holds this plan's values:

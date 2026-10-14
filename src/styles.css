@@ -1065,3 +1065,9 @@ td {
 .summary tr.level-subnet td:first-child {
   padding-left: 36px;
 }
+
+.tabs.history button {
+  min-width: 30px;
+  font-size: 15px;
+  line-height: 1;
+}
