@@ -51,21 +51,24 @@ export interface AzureImport {
   notes: ImportNote[];
 }
 
-interface FoundVnet {
+export interface FoundVnet {
   id: string;
   name: string;
   location: string;
   /** The main address range, and any others. */
   cidr: Cidr;
   extra: Cidr[];
+  /** As written in the resource id. */
+  resourceGroup: string;
   subnets: { name: string; cidr: Cidr }[];
   /** Lower-cased resource ids of peered VNets. */
   peers: string[];
 }
 
-interface FoundHub {
+export interface FoundHub {
   id: string;
   name: string;
+  resourceGroup: string;
   location: string;
   cidr: Cidr;
 }
@@ -239,6 +242,7 @@ function readVnet(resource: Json, notes: ImportNote[]): FoundVnet | null {
     location,
     cidr: prefixes[0],
     extra: prefixes.slice(1),
+    resourceGroup: resourceGroupOf(resource),
     subnets: subnets.filter((s) => !outside.includes(s)),
     peers,
   };
@@ -252,8 +256,10 @@ function readHub(resource: Json, notes: ImportNote[]): FoundHub | null {
     notes.push({ level: 'warning', message: `Virtual hub ${name} has no location or address prefix and was left out` });
     return null;
   }
-  return { id: text(field(resource, 'id')).toLowerCase() || newId(), name, location, cidr };
+  return { id: text(field(resource, 'id')).toLowerCase() || newId(), name, resourceGroup: resourceGroupOf(resource), location, cidr };
 }
+
+const resourceGroupOf = (resource: Json) => text(field(resource, 'id')).match(/\/resourcegroups\/([^/]+)/i)?.[1] ?? '';
 
 /** Subnets that only a connectivity hub has. */
 const HUB_SUBNETS = new Set(['gatewaysubnet', 'azurefirewallsubnet', 'azurefirewallmanagementsubnet', 'routeserversubnet']);
@@ -347,13 +353,15 @@ function buildRegion(location: string, vnets: FoundVnet[], hubs: FoundHub[], not
 }
 
 /**
- * Turn exported Azure network JSON into a plan. Accepts Resource Graph output
- * (see AZURE_IMPORT_QUERY), `az network vnet list` / `az network vhub list`,
- * `Get-AzVirtualNetwork | ConvertTo-Json -Depth 10`, ARM REST list responses,
- * or several of these pasted one after another. Throws with a readable message if nothing
- * usable is found.
+ * The VNets and Virtual WAN hubs in exported Azure network JSON (in any shape
+ * `importAzureNetwork` accepts), keyed by lower-cased resource id, with notes
+ * on anything skipped. Throws with a readable message if there are none.
  */
-export function importAzureNetwork(input: string, name = 'Imported Azure network'): AzureImport {
+export function readAzureNetwork(input: string): {
+  vnets: Map<string, FoundVnet>;
+  hubs: Map<string, FoundHub>;
+  notes: ImportNote[];
+} {
   const { docs: data, skippedText } = parseDocuments(input);
   const notes: ImportNote[] = [];
   if (skippedText) notes.push({ level: 'info', message: 'Text that isn’t JSON (such as CLI messages) was skipped' });
@@ -377,6 +385,18 @@ export function importAzureNetwork(input: string, name = 'Imported Azure network
     }
   }
   if (vnets.size === 0 && hubs.size === 0) throw new Error('No virtual networks or Virtual WAN hubs were found.');
+  return { vnets, hubs, notes };
+}
+
+/**
+ * Turn exported Azure network JSON into a plan. Accepts Resource Graph output
+ * (see AZURE_IMPORT_QUERY), `az network vnet list` / `az network vhub list`,
+ * `Get-AzVirtualNetwork | ConvertTo-Json -Depth 10`, ARM REST list responses,
+ * or several of these pasted one after another. Throws with a readable message if nothing
+ * usable is found.
+ */
+export function importAzureNetwork(input: string, name = 'Imported Azure network'): AzureImport {
+  const { vnets, hubs, notes } = readAzureNetwork(input);
 
   const locations = new Map<string, { vnets: FoundVnet[]; hubs: FoundHub[] }>();
   const group = (location: string) => {

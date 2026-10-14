@@ -1084,3 +1084,44 @@ td {
   font-size: 13px;
   font-weight: 600;
 }
+
+/* Compare with Azure */
+
+.compare-summary {
+  margin-top: 12px;
+}
+
+.chip.ok {
+  color: var(--ok);
+}
+
+.chip.warning {
+  color: var(--warning);
+}
+
+.chip.error {
+  color: var(--error);
+}
+
+.compare-azure .compare-results {
+  max-height: 320px;
+}
+
+.compare-results td.status {
+  white-space: nowrap;
+}
+
+.compare-results .muted {
+  font-size: 11px;
+}
+
+.differences {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+}
+
+.compare-results .empty {
+  padding: 12px;
+  margin: 0;
+}

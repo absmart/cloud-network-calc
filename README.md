@@ -69,6 +69,14 @@ The **Designs** button keeps multiple named designs:
 
 **⋯ → Copy share link** copies a link that opens the current plan, with its IaC naming options. The design is compressed into the part of the link after `#`, which browsers never send to a server, so nothing is uploaded: anyone with the link has the design, and nobody else does. The default plan makes a link of about 700 characters. Opening a link shows what it holds and asks before replacing the current plan; **Open and save to my designs** also keeps it as a saved design. The design is then removed from the address bar, so a reload doesn't offer it again.
 
+## Compare with Azure
+
+**⋯ → Compare with Azure** checks the current plan against what is deployed. It takes the same command output as the import (below), read in the browser and sent nowhere. Each planned VNet and Virtual WAN hub is matched to a deployed one by the name the IaC export gives it (using the naming options set in Export IaC) or by its planner name, and failing that by overlapping address space in the same location. The result lists:
+- **Different**: address ranges, location, or subnets that don't match, or that exist on only one side
+- **Only in Azure**: deployed networks the plan doesn't have, marked **Overlaps the plan** when they clash with planned address space
+- **Not deployed**: planned networks with nothing in Azure yet
+- **Matches**: hidden unless you untick "Only differences"
+
 ## Import from Azure
 
 **⋯ → Import from Azure** brings an existing network into the planner, to check it against the Azure rules and plan what comes next. The app can't call Azure, so you export the network yourself and paste or load the output. It is read in the browser and sent nowhere. The dialog has a command to copy for each of these:

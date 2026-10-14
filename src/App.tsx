@@ -1,5 +1,6 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import { AllocationBar, Issues, regionColor } from './components/common';
+import { CompareAzureDialog } from './components/CompareAzureDialog';
 import { DesignsDialog } from './components/DesignsDialog';
 import { ExportDialog } from './components/ExportDialog';
 import { ImportAzureDialog } from './components/ImportAzureDialog';
@@ -50,6 +51,7 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [showDesigns, setShowDesigns] = useState(false);
   const [importingAzure, setImportingAzure] = useState(false);
+  const [comparingAzure, setComparingAzure] = useState(false);
   // A short confirmation shown at the bottom of the page.
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number>();
@@ -264,6 +266,11 @@ export default function App() {
                 title: 'Load an existing Azure network from Azure CLI or PowerShell output',
                 onSelect: () => setImportingAzure(true),
               },
+              {
+                label: 'Compare with Azure…',
+                title: 'Check this plan against what is deployed, from Azure CLI or PowerShell output',
+                onSelect: () => setComparingAzure(true),
+              },
               { label: 'Reset to the example plan', onSelect: reset, separated: true },
             ]}
           />
@@ -362,7 +369,8 @@ export default function App() {
           onClose={() => setIncoming(null)}
         />
       )}
-      {importingAzure &&<ImportAzureDialog onImport={openImported} onClose={() => setImportingAzure(false)} />}
+      {comparingAzure && <CompareAzureDialog plan={plan} result={result} onClose={() => setComparingAzure(false)} />}
+      {importingAzure && <ImportAzureDialog onImport={openImported} onClose={() => setImportingAzure(false)} />}
       {showDesigns && (
         <DesignsDialog
           plan={plan}

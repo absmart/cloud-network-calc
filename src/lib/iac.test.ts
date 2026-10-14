@@ -39,16 +39,18 @@ describe('IaC export', () => {
     const m = model(plan);
     expect(m.vnets).toHaveLength(9); // 2 hubs + 2 landing zones + 5 spokes in Central US
     expect(m.vnets[0].subnets.slice(-3)).toEqual([
-      { name: 'identity-prd-eus2-01-snet', prefix: '10.0.3.0/27' },
-      { name: 'management-prd-eus2-01-snet', prefix: '10.0.3.32/27' },
-      { name: 'security-prd-eus2-01-snet', prefix: '10.0.3.64/27' },
+      { name: 'identity-prd-eus2-01-snet', plannerName: 'identity-snet', prefix: '10.0.3.0/27' },
+      { name: 'management-prd-eus2-01-snet', plannerName: 'management-snet', prefix: '10.0.3.32/27' },
+      { name: 'security-prd-eus2-01-snet', plannerName: 'security-snet', prefix: '10.0.3.64/27' },
     ]);
     expect(m.omitted).toEqual([]);
   });
 
   it('models Virtual WAN regions as virtual hubs with spoke connections', () => {
     const m = model(vwanPlan());
-    expect(m.virtualHubs).toEqual([{ name: 'hub-prd-eus2-01-vhub', location: 'eastus2', prefix: '10.0.0.0/23' }]);
+    expect(m.virtualHubs).toEqual([
+      expect.objectContaining({ name: 'hub-prd-eus2-01-vhub', plannerName: 'hub-eus2-vhub', location: 'eastus2', prefix: '10.0.0.0/23' }),
+    ]);
     expect(m.virtualWan).toBe('network-prd-eus2-01-vwan');
     expect(m.hubConnections[0].name).toBe('identity-prd-eus2-01-conn');
     expect(m.hubConnections).toHaveLength(5);
