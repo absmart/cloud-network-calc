@@ -1,8 +1,9 @@
-import { type CSSProperties, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import { AllocationBar, Issues, regionColor } from './components/common';
 import { DesignsDialog } from './components/DesignsDialog';
 import { ExportDialog } from './components/ExportDialog';
 import { ImportAzureDialog } from './components/ImportAzureDialog';
+import { Menu } from './components/Menu';
 import { SharedLinkDialog } from './components/SharedLinkDialog';
 import { RegionCard } from './components/RegionCard';
 import { SummaryTable } from './components/SummaryTable';
@@ -41,7 +42,14 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [showDesigns, setShowDesigns] = useState(false);
   const [importingAzure, setImportingAzure] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
+  // A short confirmation shown at the bottom of the page.
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number>();
+  const notify = (text: string) => {
+    setToast(text);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2500);
+  };
   // A design from a share link the app was opened with, waiting to be opened.
   const [incoming, setIncoming] = useState<{ shared: SharedDesign | null; error: string | null } | null>(null);
   const [storageOk, setStorageOk] = useState(true);
@@ -139,8 +147,7 @@ export default function App() {
     const url = await shareUrl(window.location.href, plan, loadNaming());
     try {
       await navigator.clipboard.writeText(url);
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2000);
+      notify('Share link copied');
     } catch {
       window.prompt('Copy this link to share the design:', url);
     }
@@ -216,19 +223,26 @@ export default function App() {
             {counts.errors} errors · {counts.warnings} warnings
           </span>
           <button onClick={() => setShowDesigns(true)}>Designs{designs.length ? ` (${designs.length})` : ''}</button>
-          <button
-            title="Copy a link that opens this design, with its naming options. The design is inside the link itself and isn't uploaded anywhere."
-            onClick={() => void copyShareLink()}
-          >
-            {linkCopied ? 'Copied' : 'Share'}
-          </button>
-          <button title="Load an existing Azure network from Azure CLI or PowerShell output" onClick={() => setImportingAzure(true)}>
-            Import from Azure
-          </button>
           <button className="primary" onClick={() => setExporting(true)}>
             Export IaC
           </button>
-          <button onClick={reset}>Reset</button>
+          <Menu
+            label="⋯"
+            title="More actions"
+            items={[
+              {
+                label: 'Copy share link',
+                title: "A link that opens this design, with its naming options. The design is inside the link itself and isn't uploaded anywhere.",
+                onSelect: () => void copyShareLink(),
+              },
+              {
+                label: 'Import from Azure…',
+                title: 'Load an existing Azure network from Azure CLI or PowerShell output',
+                onSelect: () => setImportingAzure(true),
+              },
+              { label: 'Reset to the example plan', onSelect: reset, separated: true },
+            ]}
+          />
         </div>
         <Issues issues={result.issues} />
         <AllocationBar
@@ -345,6 +359,11 @@ export default function App() {
           onImport={(imported) => setDesigns([...designs, ...imported])}
           onClose={() => setShowDesigns(false)}
         />
+      )}
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
       )}
     </div>
   );
