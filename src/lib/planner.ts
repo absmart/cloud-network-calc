@@ -6,6 +6,7 @@ import {
   type Cidr,
   allocate,
   blockSize,
+  contains,
   formatCidr,
   freeBlocks,
   parseCidr,
@@ -33,14 +34,28 @@ export interface SubnetSpec {
    * the visual editor. Relative, so the layout survives the VNet moving.
    */
   offset?: number;
+  /**
+   * The VNet address range the subnet belongs to: 0 or missing for the main
+   * range, n for `VnetSpec.ranges[n - 1]`. `offset` is relative to that range.
+   * Missing on an automatically placed subnet means any range, main first.
+   */
+  range?: number;
   /** Put in the hub by the "hub" platform layout; replaced when the region's platform layout changes. */
   platform?: boolean;
 }
 
-/** A free block the visual editor has divided out, relative to the VNet base. */
+/** A free block the visual editor has divided out, relative to the base of its address range. */
 export interface Split {
   offset: number;
   prefix: number;
+  /** As `SubnetSpec.range`; missing means the main range. */
+  range?: number;
+}
+
+/** An extra address range of a VNet, beside its main one (Azure VNets can have several). */
+export interface RangeSpec {
+  prefix: number;
+  fixed?: string;
 }
 
 /** What a spoke is for. Platform roles are swapped when the region's platform layout changes. */
@@ -57,8 +72,11 @@ export interface VnetSpec {
   name: string;
   /** Spokes only; missing means landing zone. */
   role?: VnetRole;
+  /** The main address range: its size, or a pinned CIDR. */
   prefix: number;
   fixed?: string;
+  /** Extra address ranges, placed in the region after every VNet's main range. Not for virtual hubs. */
+  ranges?: RangeSpec[];
   subnets: SubnetSpec[];
   /** Free-space divisions made in the visual editor. */
   splits?: Split[];
@@ -103,7 +121,10 @@ export type VnetKind = 'hub' | 'virtual-hub' | 'spoke';
 
 export interface VnetResult extends NodeResult {
   kind: VnetKind;
+  /** Every address range, main first (`cidr` is the main one); null where one couldn't be allocated. */
+  ranges: (Cidr | null)[];
   subnets: SubnetResult[];
+  /** Free space in all of the VNet's ranges. */
   free: Cidr[];
 }
 
@@ -202,13 +223,29 @@ export function computePlan(plan: PlanSpec): PlanResult {
 function computeRegion(spec: RegionSpec, cidr: Cidr | null, issues: Issue[]): RegionResult {
   const vnets = [spec.hub, ...spec.spokes];
   const vnetIssues = vnets.map((): Issue[] => []);
+  const kinds = vnets.map((_, i): VnetKind => (i > 0 ? 'spoke' : spec.topology === 'vwan' ? 'virtual-hub' : 'hub'));
   const requests = vnets.map((v, i) => toRequest(v.prefix, v.fixed, vnetIssues[i]));
-  const allocs = cidr ? allocate(cidr, requests) : null;
+  // Extra address ranges come after every main range, so adding one never moves a VNet.
+  const extras = vnets.flatMap((v, i) =>
+    kinds[i] === 'virtual-hub'
+      ? []
+      : (v.ranges ?? []).map((r, k) => {
+          const rangeIssues: Issue[] = [];
+          return { vnet: i, range: k + 1, issues: rangeIssues, request: toRequest(r.prefix, r.fixed, rangeIssues) };
+        }),
+  );
+  const allocs = cidr ? allocate(cidr, [...requests, ...extras.map((e) => e.request)]) : null;
+  const extraCidrs = extras.map((e, j) => {
+    const c = take(allocs?.[vnets.length + j], e.issues);
+    vnetIssues[e.vnet].push(...e.issues.map((x) => ({ ...x, message: `Address range ${e.range + 1}: ${x.message}` })));
+    return c;
+  });
   const results = vnets.map((v, i) => {
-    const kind: VnetKind = i > 0 ? 'spoke' : spec.topology === 'vwan' ? 'virtual-hub' : 'hub';
-    return computeVnet(v, kind, requests[i].prefix, take(allocs?.[i], vnetIssues[i]), vnetIssues[i]);
+    const ranges = extras.flatMap((e, j) => (e.vnet === i ? [extraCidrs[j]] : []));
+    return computeVnet(v, kinds[i], requests[i].prefix, take(allocs?.[i], vnetIssues[i]), ranges, vnetIssues[i]);
   });
 
+  const used = results.flatMap((v) => v.ranges.filter((c): c is Cidr => c !== null));
   return {
     id: spec.id,
     name: spec.name,
@@ -216,8 +253,45 @@ function computeRegion(spec: RegionSpec, cidr: Cidr | null, issues: Issue[]): Re
     issues,
     hub: results[0],
     spokes: results.slice(1),
-    free: cidr ? freeBlocks(cidr, allocated(results)) : [],
+    free: cidr ? freeBlocks(cidr, used) : [],
   };
+}
+
+/**
+ * Place a VNet's subnets in its address ranges. A pinned subnet goes in the
+ * range that holds it, one with a `range` only in that range, and any other
+ * first-fit in the main range, then in each extra range in turn.
+ */
+function allocateSubnets(spec: VnetSpec, ranges: (Cidr | null)[], requests: AllocRequest[]): (AllocResult | undefined)[] {
+  const out: (AllocResult | undefined)[] = new Array(requests.length);
+  const placed = ranges.flatMap((c, k) => (c ? [k] : []));
+  if (placed.length === 0) return out;
+  const home = requests.map((req, i): number | null => {
+    if (req.fixed) {
+      const k = placed.find((k) => contains(ranges[k]!, req.fixed!));
+      if (k === undefined) out[i] = { error: `${formatCidr(req.fixed)} is outside ${placed.map((k) => formatCidr(ranges[k]!)).join(', ')}` };
+      return k ?? -1;
+    }
+    return spec.subnets[i].range ?? null;
+  });
+  // Subnets free to go in any range, still looking for room.
+  const roaming = new Set(requests.flatMap((_, i) => (home[i] === null ? [i] : [])));
+  placed.forEach((k, n) => {
+    const members = requests.flatMap((_, i) => (home[i] === k || roaming.has(i) ? [i] : []));
+    const results = allocate(ranges[k]!, members.map((i) => requests[i]));
+    const last = n === placed.length - 1;
+    members.forEach((i, j) => {
+      if (roaming.has(i) && 'error' in results[j] && !last) return;
+      out[i] = results[j];
+      roaming.delete(i);
+    });
+  });
+  // A subnet in a range that isn't allocated stays unplaced, like one in an
+  // unallocated VNet; the range's own issue says why.
+  home.forEach((k, i) => {
+    if (!out[i] && k !== null && k >= ranges.length) out[i] = { error: `The VNet has no address range ${k + 1}` };
+  });
+  return out;
 }
 
 function computeVnet(
@@ -225,9 +299,11 @@ function computeVnet(
   kind: VnetKind,
   prefix: number,
   cidr: Cidr | null,
+  extraRanges: (Cidr | null)[],
   issues: Issue[],
 ): VnetResult {
-  const base = { id: spec.id, name: spec.name, cidr, issues, kind };
+  const ranges = [cidr, ...extraRanges];
+  const base = { id: spec.id, name: spec.name, cidr, ranges, issues, kind };
 
   if (kind === 'virtual-hub') {
     if (prefix > VWAN_HUB_MIN_PREFIX)
@@ -238,8 +314,8 @@ function computeVnet(
   }
 
   const subnetIssues = spec.subnets.map((): Issue[] => []);
-  const requests = spec.subnets.map((s, i) => subnetRequest(s, cidr, subnetIssues[i]));
-  const allocs = cidr ? allocate(cidr, requests) : null;
+  const requests = spec.subnets.map((s, i) => subnetRequest(s, ranges[s.range ?? 0] ?? null, subnetIssues[i]));
+  const allocs = allocateSubnets(spec, ranges, requests);
   const nameCounts = new Map<string, number>();
   for (const s of spec.subnets) {
     const key = s.name.trim().toLowerCase();
@@ -275,7 +351,8 @@ function computeVnet(
     };
   });
 
-  return { ...base, subnets, free: cidr ? freeBlocks(cidr, allocated(subnets)) : [] };
+  const used = allocated(subnets);
+  return { ...base, subnets, free: ranges.flatMap((r) => (r ? freeBlocks(r, used) : [])) };
 }
 
 function regionIssues(region: RegionResult): Issue[] {

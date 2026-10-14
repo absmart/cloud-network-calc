@@ -150,3 +150,81 @@ export function release(spec: VnetSpec, result: VnetResult, index: number): Vnet
 export function autoPack(spec: VnetSpec): VnetSpec {
   return { ...spec, splits: [], subnets: spec.subnets.map((s) => ({ ...s, offset: undefined })) };
 }
+
+// Several address ranges. The visual editor edits one range at a time through
+// a view of the VNet that holds only that range, its subnets and its splits;
+// the edits are then merged back into the whole VNet.
+
+const withRange = <T extends { range?: number }>(item: T, range: number): T => {
+  const { range: _old, ...rest } = item;
+  return (range ? { ...rest, range } : rest) as T;
+};
+
+/** The range a subnet is in: where it was placed, or else the range it asks for. */
+function rangeOf(spec: VnetSpec, result: VnetResult, index: number): number {
+  const c = result.subnets[index]?.cidr;
+  const k = c ? result.ranges.findIndex((r) => r !== null && contains(r, c)) : -1;
+  return k >= 0 ? k : (spec.subnets[index].range ?? 0);
+}
+
+/** Address range `k` (0 = main) of a VNet as a VNet of its own, or null if it isn't allocated. */
+export function rangeView(spec: VnetSpec, result: VnetResult, k: number): { spec: VnetSpec; result: VnetResult } | null {
+  const cidr = result.ranges[k];
+  if (!cidr) return null;
+  const indexes = spec.subnets.flatMap((_, i) => (rangeOf(spec, result, i) === k ? [i] : []));
+  return {
+    spec: {
+      ...spec,
+      prefix: cidr.prefix,
+      fixed: undefined,
+      ranges: undefined,
+      subnets: indexes.map((i) => spec.subnets[i]),
+      splits: (spec.splits ?? []).filter((s) => (s.range ?? 0) === k),
+    },
+    result: {
+      ...result,
+      cidr,
+      ranges: [cidr],
+      subnets: indexes.map((i) => result.subnets[i]),
+      free: result.free.filter((f) => contains(cidr, f)),
+    },
+  };
+}
+
+/** Merge an edited range view (from `rangeView(spec, ..., k)`) back into the VNet. */
+export function applyRangeView(spec: VnetSpec, k: number, view: VnetSpec, edited: VnetSpec): VnetSpec {
+  const inView = new Set(view.subnets.map((s) => s.id));
+  const editedById = new Map(edited.subnets.map((s) => [s.id, s]));
+  // A subnet given a position belongs to this range; one placed automatically keeps what it had.
+  const tag = (s: SubnetSpec) => (s.offset === undefined ? s : withRange(s, k));
+  const subnets = [
+    ...spec.subnets.flatMap((s) => (!inView.has(s.id) ? [s] : editedById.has(s.id) ? [tag(editedById.get(s.id)!)] : [])),
+    ...edited.subnets.filter((s) => !inView.has(s.id)).map(tag),
+  ];
+  const splits = [
+    ...(spec.splits ?? []).filter((s) => (s.range ?? 0) !== k),
+    ...(edited.splits ?? []).map((s) => withRange(s, k)),
+  ];
+  return { ...spec, name: edited.name, subnets, splits };
+}
+
+export function addRange(spec: VnetSpec, prefix: number): VnetSpec {
+  return { ...spec, ranges: [...(spec.ranges ?? []), { prefix }] };
+}
+
+/**
+ * Remove extra address range `k` (1-based). Its subnets are placed
+ * automatically again (pinned ones keep their pin), and later ranges move up.
+ */
+export function removeRange(spec: VnetSpec, k: number): VnetSpec {
+  const ranges = (spec.ranges ?? []).filter((_, i) => i !== k - 1);
+  const renumber = (r: number | undefined) => (r && r > k ? r - 1 : r);
+  return {
+    ...spec,
+    ranges: ranges.length ? ranges : undefined,
+    subnets: spec.subnets.map((s) =>
+      s.range === k ? { ...withRange(s, 0), offset: undefined } : withRange(s, renumber(s.range) ?? 0),
+    ),
+    splits: (spec.splits ?? []).filter((s) => s.range !== k).map((s) => withRange(s, renumber(s.range) ?? 0)),
+  };
+}

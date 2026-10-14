@@ -27,7 +27,7 @@ describe('IaC export', () => {
     // Central US hub → East US 2 hub, named after the remote VNet.
     expect(m.peerings.at(-1)!.name).toBe('hub-prd-eus2-01-peer');
     const hub = m.vnets[0];
-    expect(hub).toMatchObject({ name: 'hub-prd-eus2-01-vnet', location: 'eastus2', prefix: '10.0.0.0/22' });
+    expect(hub).toMatchObject({ name: 'hub-prd-eus2-01-vnet', location: 'eastus2', prefixes: ['10.0.0.0/22'] });
     expect(hub.subnets.find((s) => s.name === 'dns-inbound-prd-eus2-01-snet')!.delegation).toBe('Microsoft.Network/dnsResolvers');
     expect(hub.subnets.find((s) => s.name === 'GatewaySubnet')!.delegation).toBeUndefined();
     expect(m.omitted).toEqual([]);
@@ -168,6 +168,19 @@ describe('IaC export', () => {
     expect(wanParams.content).toContain("virtualHub: 'hub-prd-eus2-01-vhub'");
     const [, wanVars] = files('terraform', vwanPlan());
     expect(wanVars.content).toContain('virtual_hub = "hub-prd-eus2-01-vhub"');
+  });
+
+  it('exports every address range of a VNet, and lists ranges it leaves out', () => {
+    const plan = defaultPlan();
+    plan.regions[0].spokes[3].ranges = [{ prefix: 24, fixed: '10.0.200.0/24' }, { prefix: 24, fixed: '10.5.0.0/24' }];
+    const m = model(plan);
+    expect(m.vnets.find((v) => v.name === 'corp-prd-eus2-001-vnet')!.prefixes).toEqual(['10.0.8.0/22', '10.0.200.0/24']);
+    expect(m.omitted).toEqual(['address range 3 of VNet corp-eus2-001-vnet']);
+
+    const [, params] = files('bicep', plan);
+    expect(params.content).toContain("    addressPrefixes: [\n      '10.0.8.0/22'\n      '10.0.200.0/24'\n    ]");
+    const [, tfvars] = files('terraform', plan);
+    expect(tfvars.content).toMatch(/address_space = \["10\.0\.8\.0\/22", "10\.0\.200\.0\/24"\]/);
   });
 
   it('names the variables file after the environment', () => {

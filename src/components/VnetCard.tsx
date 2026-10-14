@@ -1,8 +1,9 @@
 import { useId, useState } from 'react';
 import { RESERVED_NAME_PRESETS, SMALLEST_SUBNET_PREFIX, SUBNET_PRESETS, presetForName } from '../lib/azure';
 import { newId } from '../lib/defaults';
-import { formatIp, endOf, blockSize } from '../lib/ipv4';
-import type { SubnetSpec, VnetResult, VnetRole, VnetSpec } from '../lib/planner';
+import { blockSize, contains, endOf, formatCidr, formatIp } from '../lib/ipv4';
+import { addRange, applyRangeView, rangeView, removeRange } from '../lib/layout';
+import type { RangeSpec, SubnetSpec, VnetResult, VnetRole, VnetSpec } from '../lib/planner';
 import { AllocationBar, CidrBadge, Issues, PinInput, PrefixSelect } from './common';
 import { VisualSubnetEditor } from './VisualSubnetEditor';
 
@@ -28,6 +29,9 @@ export function VnetCard(props: {
   const [mode, setMode] = useState<'visual' | 'list'>('visual');
   const isVirtualHub = result.kind === 'virtual-hub';
   const vnetPrefix = result.cidr?.prefix ?? spec.prefix;
+
+  const updateRange = (index: number, patch: Partial<RangeSpec>) =>
+    onChange({ ...spec, ranges: (spec.ranges ?? []).map((r, i) => (i === index ? { ...r, ...patch } : r)) });
 
   const updateSubnet = (index: number, patch: Partial<SubnetSpec>) =>
     onChange({ ...spec, subnets: spec.subnets.map((s, i) => (i === index ? { ...s, ...patch } : s)) });
@@ -62,6 +66,28 @@ export function VnetCard(props: {
           </button>
         )}
       </header>
+      {!isVirtualHub &&
+        (spec.ranges ?? []).map((range, i) => (
+          <div className="row extra-range" key={i}>
+            <span className="kind">Range {i + 2}</span>
+            <PrefixSelect
+              value={range.prefix}
+              min={props.minPrefix}
+              max={SMALLEST_SUBNET_PREFIX}
+              disabled={!!range.fixed?.trim()}
+              onChange={(prefix) => updateRange(i, { prefix })}
+            />
+            <PinInput value={range.fixed} onChange={(fixed) => updateRange(i, { fixed })} />
+            <CidrBadge cidr={result.ranges[i + 1] ?? null} />
+            <button
+              className="icon"
+              title="Remove this address range (its subnets are placed automatically again)"
+              onClick={() => onChange(removeRange(spec, i + 1))}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
       <Issues issues={result.issues} />
 
       {isVirtualHub ? (
@@ -70,16 +96,23 @@ export function VnetCard(props: {
         </p>
       ) : (
         <>
-          <AllocationBar
-            parent={result.cidr}
-            free={result.free}
-            segments={result.subnets.map((s) => ({
-              id: s.id,
-              label: s.name,
-              cidr: s.cidr,
-              tone: presetForName(s.name) ? 'special' : 'subnet',
-            }))}
-          />
+          {result.ranges.map((range, k) =>
+            range ? (
+              <AllocationBar
+                key={k}
+                parent={range}
+                free={result.free.filter((f) => contains(range, f))}
+                segments={result.subnets
+                  .filter((s) => s.cidr && contains(range, s.cidr))
+                  .map((s) => ({
+                    id: s.id,
+                    label: s.name,
+                    cidr: s.cidr,
+                    tone: presetForName(s.name) ? 'special' : 'subnet',
+                  }))}
+              />
+            ) : null,
+          )}
           <div className="tabs mode">
             <button className={mode === 'visual' ? 'active' : ''} onClick={() => setMode('visual')}>
               Visual
@@ -88,9 +121,28 @@ export function VnetCard(props: {
               List
             </button>
           </div>
-          {mode === 'visual' && (
-            <VisualSubnetEditor spec={spec} result={result} datalistId={datalistId} onChange={onChange} />
-          )}
+          {mode === 'visual' &&
+            result.ranges.map((range, k) => {
+              const view = rangeView(spec, result, k);
+              const several = result.ranges.length > 1;
+              // An unallocated main range still gets an editor, which explains why it's empty.
+              if (!view && k > 0) return null;
+              return (
+                <div key={k} className="range-editor">
+                  {several && (
+                    <h4>
+                      Address range {k + 1} {range && <code>{formatCidr(range)}</code>}
+                    </h4>
+                  )}
+                  <VisualSubnetEditor
+                    spec={view?.spec ?? spec}
+                    result={view?.result ?? result}
+                    datalistId={datalistId}
+                    onChange={(edited) => onChange(view ? applyRangeView(spec, k, view.spec, edited) : edited)}
+                  />
+                </div>
+              );
+            })}
           {mode === 'list' && spec.subnets.length > 0 && (
             <table className="subnets">
               <thead>
@@ -177,9 +229,12 @@ export function VnetCard(props: {
                 </option>
               ))}
             </select>
+            <button title="Give the VNet another address range, placed after every VNet's main range" onClick={() => onChange(addRange(spec, spec.prefix))}>
+              + Add address range
+            </button>
             {result.cidr && (
               <span className="muted">
-                {blockSize(result.cidr.prefix).toLocaleString()} addresses in VNet
+                {result.ranges.reduce((n, r) => n + (r ? blockSize(r.prefix) : 0), 0).toLocaleString()} addresses in VNet
               </span>
             )}
           </div>

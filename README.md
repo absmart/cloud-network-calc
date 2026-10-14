@@ -4,6 +4,7 @@ A browser app for planning IP address space for Azure Landing Zone network desig
 
 - **Root address space → regions → VNets → subnets.** You set a size (prefix length) for each block and the app places it in the next free aligned slot. You can also pin any block to a specific CIDR for brownfield ranges.
 - **Multiple regions, each with a /16 and its own hub.** The default root `10.0.0.0/12` holds 16 regional /16s. Each /16 picks its Azure region from a dropdown grouped by geography. Regions already used by another /16 are greyed out, and each region shows its Azure paired region. "Add region" picks East US 2 for a plan's first region and the Azure pair of the first region for the second (East US 2 → Central US). After that it picks the pair of an existing region, then another region in the same geography. The region list is a snapshot of what your subscription offers; refresh it with `npm run update-regions` (requires a logged-in Azure CLI). A Regions overview table lists every region's range and hub range. If the root runs out of space, the app suggests the smallest wider root that fits. VNet names use short region codes (`hub-eus2-vnet` for East US 2, `corp-cus-001-vnet` for Central US), and changing a region's location renames its VNets to match.
+- **Several address ranges per VNet**, as Azure allows. **+ Add address range** gives a VNet another range, sized or pinned like the main one. Extra ranges are placed in the region after every VNet's main range, so adding one never moves an existing VNet. Subnets fill the main range first and then the extra ranges, and each range has its own bar and visual editor. Removing a range places its subnets automatically again. The IaC export lists every range in the VNet's address space.
 - **Visual subnet editor** for each VNet, inspired by [visualsubnetcalc.com](https://visualsubnetcalc.com/). Every row is a block of the VNet's range:
   - **Divide** splits a row in half.
   - Typing a name turns a free block into a subnet.
@@ -80,7 +81,7 @@ Output from several commands or subscriptions can be pasted together. CLI messag
 How the network is turned into a plan:
 - Each Azure location is a region. A Virtual WAN hub there makes it a Virtual WAN region. Otherwise the hub is the VNet with a gateway or firewall subnet, failing that the one with the most peerings, and the other VNets are spokes.
 - Everything is pinned where it is: region ranges (a /16 where that doesn't take in another region's VNets, otherwise the smallest range covering the region), VNets and subnet positions. The root range is the smallest range covering all regions. Overlaps and rule breaks in the real network show up as the planner's usual errors.
-- A planner VNet has one address range, so for a VNet with several only the range holding the most subnets is imported. The others are listed in the notes. Imported spokes are landing zones, so changing a region's platform layout never replaces them.
+- A VNet with several address ranges keeps them all: the first one Azure lists is its main range and the others are extra ranges, each holding its own subnets. Imported spokes are landing zones, so changing a region's platform layout never replaces them.
 
 ## Run
 

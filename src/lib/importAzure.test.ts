@@ -104,7 +104,7 @@ describe('importAzureNetwork', () => {
     expect(switched.spokes.map((s) => s.name)).toEqual(expect.arrayContaining(['spoke-a', 'spoke-b']));
   });
 
-  it('reads `az network vnet list` output and keeps the range holding most subnets', () => {
+  it('reads `az network vnet list` output and keeps every address range', () => {
     const cli = [
       {
         id: vnetId('app'),
@@ -116,19 +116,25 @@ describe('importAzureNetwork', () => {
           { name: 'a', addressPrefix: '10.8.0.0/25' },
           { name: 'b', addressPrefix: '10.8.0.128/25' },
           { name: 'c', addressPrefix: '10.9.0.0/25' },
+          { name: 'stray', addressPrefix: '10.7.0.0/28' },
         ],
         virtualNetworkPeerings: [],
       },
     ];
     const { plan, notes } = importAzureNetwork(JSON.stringify(cli));
-    expect(plan.regions[0].hub).toMatchObject({ name: 'app', fixed: '10.8.0.0/24' });
-    expect(plan.regions[0].hub.subnets.map((s) => [s.name, s.offset])).toEqual([
-      ['a', 0],
-      ['b', 128],
+    const hub = plan.regions[0].hub;
+    expect(hub).toMatchObject({ name: 'app', fixed: '10.9.0.0/24', ranges: [{ prefix: 24, fixed: '10.8.0.0/24' }] });
+    expect(hub.subnets.map((s) => [s.name, s.offset, s.range])).toEqual([
+      ['a', 0, 1],
+      ['b', 128, 1],
+      ['c', 0, undefined],
     ]);
-    expect(notes.map((n) => n.message)).toContain(
-      'app has several address ranges; only 10.8.0.0/24 is imported (left out: 10.9.0.0/24, with subnets c)',
-    );
+    // 10.8.x and 10.9.x take a /15; widening to a /16 couldn't hold both.
+    expect(plan.regions[0].fixed).toBe('10.8.0.0/15');
+    const result = computePlan(plan);
+    expect(result.regions[0].hub.subnets.map((s) => formatCidr(s.cidr!))).toEqual(['10.8.0.0/25', '10.8.0.128/25', '10.9.0.0/25']);
+    expect(countIssues(result).errors).toBe(0);
+    expect(notes.map((n) => n.message)).toContain("app: stray (10.7.0.0/28) not in the VNet's address space, left out");
   });
 
   it('reads Get-AzVirtualNetwork output and flags truncated subnets', () => {

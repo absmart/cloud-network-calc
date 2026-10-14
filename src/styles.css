@@ -1071,3 +1071,16 @@ td {
   font-size: 15px;
   line-height: 1;
 }
+
+/* VNets with several address ranges */
+
+.extra-range {
+  margin-top: 6px;
+  padding-left: 12px;
+}
+
+.range-editor h4 {
+  margin: 12px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}

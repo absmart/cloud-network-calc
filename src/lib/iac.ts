@@ -52,7 +52,8 @@ interface IacVnet {
   /** <app>-<env><region><int>, reused to name peerings and hub connections to this VNet. */
   base: string;
   location: string;
-  prefix: string;
+  /** Address ranges, main first. */
+  prefixes: string[];
   subnets: IacSubnet[];
 }
 
@@ -145,7 +146,11 @@ export function buildIacModel(plan: PlanSpec, result: PlanResult, naming: Naming
         usedSubnets.add(name);
         subnets.push({ name, prefix: formatCidr(s.cidr), delegation: delegationForName(s.name) });
       }
-      model.vnets.push({ name: resourceName(base, 'vnet'), base, location, prefix: formatCidr(v.cidr), subnets });
+      const prefixes = v.ranges.flatMap((c, k) => {
+        if (!c) model.omitted.push(`address range ${k + 1} of VNet ${v.name}`);
+        return c ? [formatCidr(c)] : [];
+      });
+      model.vnets.push({ name: resourceName(base, 'vnet'), base, location, prefixes, subnets });
       return model.vnets.length - 1;
     };
 
@@ -390,7 +395,14 @@ export function toBicepParams(model: IacModel): string {
     'param vnets = [',
   ];
   for (const v of model.vnets) {
-    out.push('  {', `    name: ${bq(v.name)}`, `    location: ${bq(v.location)}`, '    addressPrefixes: [', `      ${bq(v.prefix)}`, '    ]');
+    out.push(
+      '  {',
+      `    name: ${bq(v.name)}`,
+      `    location: ${bq(v.location)}`,
+      '    addressPrefixes: [',
+      ...v.prefixes.map((p) => `      ${bq(p)}`),
+      '    ]',
+    );
     if (v.subnets.length === 0) {
       out.push('    subnets: []');
     } else {
@@ -743,7 +755,7 @@ function terraformValues(model: IacModel): string[] {
     out.push(
       ...aligned('    ', [
         ['location', tq(v.location)],
-        ['address_space', `[${tq(v.prefix)}]`],
+        ['address_space', `[${v.prefixes.map(tq).join(', ')}]`],
       ]),
     );
     if (v.subnets.length === 0) {

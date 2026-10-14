@@ -55,7 +55,9 @@ interface FoundVnet {
   id: string;
   name: string;
   location: string;
+  /** The main address range, and any others. */
   cidr: Cidr;
+  extra: Cidr[];
   subnets: { name: string; cidr: Cidr }[];
   /** Lower-cased resource ids of peered VNets. */
   peers: string[];
@@ -219,19 +221,13 @@ function readVnet(resource: Json, notes: ImportNote[]): FoundVnet | null {
       message: `${name}: subnet details are missing (with ConvertTo-Json, pass -Depth 10)`,
     });
 
-  // A plan VNet has one range: keep the one holding the most subnets.
-  const inside = (c: Cidr) => subnets.filter((s) => contains(c, s.cidr)).length;
-  const cidr = prefixes.reduce((best, c) => (inside(c) > inside(best) ? c : best));
-  if (prefixes.length > 1) {
-    const others = prefixes.filter((c) => c !== cidr).map(formatCidr);
-    const dropped = subnets.filter((s) => !contains(cidr, s.cidr)).map((s) => s.name);
+  // The first range Azure lists is the main one; the rest become extra ranges.
+  const outside = subnets.filter((s) => !prefixes.some((c) => contains(c, s.cidr)));
+  if (outside.length)
     notes.push({
       level: 'warning',
-      message:
-        `${name} has several address ranges; only ${formatCidr(cidr)} is imported (left out: ${others.join(', ')}` +
-        (dropped.length ? `, with subnets ${dropped.join(', ')})` : ')'),
+      message: `${name}: ${outside.map((s) => `${s.name} (${formatCidr(s.cidr)})`).join(', ')} not in the VNet's address space, left out`,
     });
-  }
 
   const peers = list(field(resource, 'virtualNetworkPeerings'))
     .map((p) => text(field(field(p, 'remoteVirtualNetwork'), 'id')).toLowerCase())
@@ -241,8 +237,9 @@ function readVnet(resource: Json, notes: ImportNote[]): FoundVnet | null {
     id: text(field(resource, 'id')).toLowerCase() || newId(),
     name,
     location,
-    cidr,
-    subnets: subnets.filter((s) => contains(cidr, s.cidr)),
+    cidr: prefixes[0],
+    extra: prefixes.slice(1),
+    subnets: subnets.filter((s) => !outside.includes(s)),
     peers,
   };
 }
@@ -261,17 +258,22 @@ function readHub(resource: Json, notes: ImportNote[]): FoundHub | null {
 /** Subnets that only a connectivity hub has. */
 const HUB_SUBNETS = new Set(['gatewaysubnet', 'azurefirewallsubnet', 'azurefirewallmanagementsubnet', 'routeserversubnet']);
 
-const toVnetSpec = (v: FoundVnet, landingZone: boolean): VnetSpec => ({
-  id: newId(),
-  name: v.name,
-  // Imported spokes are never "platform", so changing the platform layout can't replace them.
-  ...(landingZone && { role: 'landing-zone' as const }),
-  prefix: v.cidr.prefix,
-  fixed: formatCidr(v.cidr),
-  subnets: v.subnets.map(
-    (s): SubnetSpec => ({ id: newId(), name: s.name, prefix: s.cidr.prefix, offset: s.cidr.base - v.cidr.base }),
-  ),
-});
+function toVnetSpec(v: FoundVnet, landingZone: boolean): VnetSpec {
+  const ranges = [v.cidr, ...v.extra];
+  return {
+    id: newId(),
+    name: v.name,
+    // Imported spokes are never "platform", so changing the platform layout can't replace them.
+    ...(landingZone && { role: 'landing-zone' as const }),
+    prefix: v.cidr.prefix,
+    fixed: formatCidr(v.cidr),
+    ...(v.extra.length > 0 && { ranges: v.extra.map((c) => ({ prefix: c.prefix, fixed: formatCidr(c) })) }),
+    subnets: v.subnets.map((s): SubnetSpec => {
+      const k = ranges.findIndex((c) => contains(c, s.cidr));
+      return { id: newId(), name: s.name, prefix: s.cidr.prefix, offset: s.cidr.base - ranges[k].base, ...(k > 0 && { range: k }) };
+    }),
+  };
+}
 
 const byAddress = <T extends { cidr: Cidr }>(a: T, b: T) => a.cidr.base - b.cidr.base || a.cidr.prefix - b.cidr.prefix;
 
@@ -386,7 +388,10 @@ export function importAzureNetwork(input: string, name = 'Imported Azure network
 
   // A region's block is the smallest one covering its networks, widened to a
   // /16 when that doesn't take in another region's networks.
-  const used = (g: { vnets: FoundVnet[]; hubs: FoundHub[] }) => [...g.vnets, ...g.hubs].map((n) => n.cidr);
+  const used = (g: { vnets: FoundVnet[]; hubs: FoundHub[] }) => [
+    ...g.vnets.flatMap((v) => [v.cidr, ...v.extra]),
+    ...g.hubs.map((h) => h.cidr),
+  ];
   const placed = [...locations].map(([location, g]) => {
     let block = supernet(used(g));
     if (block.prefix > 16) {
