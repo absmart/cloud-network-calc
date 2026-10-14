@@ -41,22 +41,28 @@ export function variablesFileName(format: 'bicep' | 'terraform', environment: st
   return format === 'bicep' ? `alz-network.${env}.bicepparam` : `${env}.tfvars`;
 }
 
-interface IacSubnet {
+export interface IacSubnet {
   name: string;
+  /** The subnet's name in the planner. */
+  plannerName: string;
   prefix: string;
   delegation?: string;
 }
 
-interface IacVnet {
+export interface IacVnet {
   name: string;
+  /** The planner VNet this comes from, by id and name. */
+  plannerId: string;
+  plannerName: string;
   /** <app>-<env><region><int>, reused to name peerings and hub connections to this VNet. */
   base: string;
   location: string;
-  prefix: string;
+  /** Address ranges, main first. */
+  prefixes: string[];
   subnets: IacSubnet[];
 }
 
-interface IacModel {
+export interface IacModel {
   planName: string;
   /** Normalized naming options, also used for the variables files. */
   naming: NamingOptions;
@@ -66,7 +72,7 @@ interface IacModel {
   /** One direction each; `from`/`to` index into `vnets`. Named after the remote VNet. */
   peerings: { name: string; from: number; to: number }[];
   virtualWan: string;
-  virtualHubs: { name: string; location: string; prefix: string }[];
+  virtualHubs: { name: string; plannerId: string; plannerName: string; location: string; prefix: string }[];
   /** `hub` indexes `virtualHubs`, `vnet` indexes `vnets`. */
   hubConnections: { name: string; hub: number; vnet: number }[];
   /** Things the plan couldn't allocate, which the export leaves out. */
@@ -143,9 +149,13 @@ export function buildIacModel(plan: PlanSpec, result: PlanResult, naming: Naming
           for (let n = 2; usedSubnets.has(name); n++) name = resourceName(nameBase(`${app}${n}`, opts, location, instance), 'snet');
         }
         usedSubnets.add(name);
-        subnets.push({ name, prefix: formatCidr(s.cidr), delegation: delegationForName(s.name) });
+        subnets.push({ name, plannerName: s.name, prefix: formatCidr(s.cidr), delegation: delegationForName(s.name) });
       }
-      model.vnets.push({ name: resourceName(base, 'vnet'), base, location, prefix: formatCidr(v.cidr), subnets });
+      const prefixes = v.ranges.flatMap((c, k) => {
+        if (!c) model.omitted.push(`address range ${k + 1} of VNet ${v.name}`);
+        return c ? [formatCidr(c)] : [];
+      });
+      model.vnets.push({ name: resourceName(base, 'vnet'), plannerId: v.id, plannerName: v.name, base, location, prefixes, subnets });
       return model.vnets.length - 1;
     };
 
@@ -154,7 +164,13 @@ export function buildIacModel(plan: PlanSpec, result: PlanResult, naming: Naming
       if (r.hub.cidr) {
         const parsed = parsePlannerName(r.hub.name, location);
         const base = uniqueBase(parsed.app || 'hub', location, parsed.instance ?? opts.instance);
-        hubIndex = model.virtualHubs.push({ name: resourceName(base, 'vhub'), location, prefix: formatCidr(r.hub.cidr) }) - 1;
+        hubIndex = model.virtualHubs.push({
+          name: resourceName(base, 'vhub'),
+          plannerId: r.hub.id,
+          plannerName: r.hub.name,
+          location,
+          prefix: formatCidr(r.hub.cidr),
+        }) - 1;
       } else {
         model.omitted.push(`virtual hub ${r.hub.name}`);
       }
@@ -390,7 +406,14 @@ export function toBicepParams(model: IacModel): string {
     'param vnets = [',
   ];
   for (const v of model.vnets) {
-    out.push('  {', `    name: ${bq(v.name)}`, `    location: ${bq(v.location)}`, '    addressPrefixes: [', `      ${bq(v.prefix)}`, '    ]');
+    out.push(
+      '  {',
+      `    name: ${bq(v.name)}`,
+      `    location: ${bq(v.location)}`,
+      '    addressPrefixes: [',
+      ...v.prefixes.map((p) => `      ${bq(p)}`),
+      '    ]',
+    );
     if (v.subnets.length === 0) {
       out.push('    subnets: []');
     } else {
@@ -743,7 +766,7 @@ function terraformValues(model: IacModel): string[] {
     out.push(
       ...aligned('    ', [
         ['location', tq(v.location)],
-        ['address_space', `[${tq(v.prefix)}]`],
+        ['address_space', `[${v.prefixes.map(tq).join(', ')}]`],
       ]),
     );
     if (v.subnets.length === 0) {

@@ -51,19 +51,24 @@ export interface AzureImport {
   notes: ImportNote[];
 }
 
-interface FoundVnet {
+export interface FoundVnet {
   id: string;
   name: string;
   location: string;
+  /** The main address range, and any others. */
   cidr: Cidr;
+  extra: Cidr[];
+  /** As written in the resource id. */
+  resourceGroup: string;
   subnets: { name: string; cidr: Cidr }[];
   /** Lower-cased resource ids of peered VNets. */
   peers: string[];
 }
 
-interface FoundHub {
+export interface FoundHub {
   id: string;
   name: string;
+  resourceGroup: string;
   location: string;
   cidr: Cidr;
 }
@@ -219,19 +224,13 @@ function readVnet(resource: Json, notes: ImportNote[]): FoundVnet | null {
       message: `${name}: subnet details are missing (with ConvertTo-Json, pass -Depth 10)`,
     });
 
-  // A plan VNet has one range: keep the one holding the most subnets.
-  const inside = (c: Cidr) => subnets.filter((s) => contains(c, s.cidr)).length;
-  const cidr = prefixes.reduce((best, c) => (inside(c) > inside(best) ? c : best));
-  if (prefixes.length > 1) {
-    const others = prefixes.filter((c) => c !== cidr).map(formatCidr);
-    const dropped = subnets.filter((s) => !contains(cidr, s.cidr)).map((s) => s.name);
+  // The first range Azure lists is the main one; the rest become extra ranges.
+  const outside = subnets.filter((s) => !prefixes.some((c) => contains(c, s.cidr)));
+  if (outside.length)
     notes.push({
       level: 'warning',
-      message:
-        `${name} has several address ranges; only ${formatCidr(cidr)} is imported (left out: ${others.join(', ')}` +
-        (dropped.length ? `, with subnets ${dropped.join(', ')})` : ')'),
+      message: `${name}: ${outside.map((s) => `${s.name} (${formatCidr(s.cidr)})`).join(', ')} not in the VNet's address space, left out`,
     });
-  }
 
   const peers = list(field(resource, 'virtualNetworkPeerings'))
     .map((p) => text(field(field(p, 'remoteVirtualNetwork'), 'id')).toLowerCase())
@@ -241,8 +240,10 @@ function readVnet(resource: Json, notes: ImportNote[]): FoundVnet | null {
     id: text(field(resource, 'id')).toLowerCase() || newId(),
     name,
     location,
-    cidr,
-    subnets: subnets.filter((s) => contains(cidr, s.cidr)),
+    cidr: prefixes[0],
+    extra: prefixes.slice(1),
+    resourceGroup: resourceGroupOf(resource),
+    subnets: subnets.filter((s) => !outside.includes(s)),
     peers,
   };
 }
@@ -255,23 +256,30 @@ function readHub(resource: Json, notes: ImportNote[]): FoundHub | null {
     notes.push({ level: 'warning', message: `Virtual hub ${name} has no location or address prefix and was left out` });
     return null;
   }
-  return { id: text(field(resource, 'id')).toLowerCase() || newId(), name, location, cidr };
+  return { id: text(field(resource, 'id')).toLowerCase() || newId(), name, resourceGroup: resourceGroupOf(resource), location, cidr };
 }
+
+const resourceGroupOf = (resource: Json) => text(field(resource, 'id')).match(/\/resourcegroups\/([^/]+)/i)?.[1] ?? '';
 
 /** Subnets that only a connectivity hub has. */
 const HUB_SUBNETS = new Set(['gatewaysubnet', 'azurefirewallsubnet', 'azurefirewallmanagementsubnet', 'routeserversubnet']);
 
-const toVnetSpec = (v: FoundVnet, landingZone: boolean): VnetSpec => ({
-  id: newId(),
-  name: v.name,
-  // Imported spokes are never "platform", so changing the platform layout can't replace them.
-  ...(landingZone && { role: 'landing-zone' as const }),
-  prefix: v.cidr.prefix,
-  fixed: formatCidr(v.cidr),
-  subnets: v.subnets.map(
-    (s): SubnetSpec => ({ id: newId(), name: s.name, prefix: s.cidr.prefix, offset: s.cidr.base - v.cidr.base }),
-  ),
-});
+function toVnetSpec(v: FoundVnet, landingZone: boolean): VnetSpec {
+  const ranges = [v.cidr, ...v.extra];
+  return {
+    id: newId(),
+    name: v.name,
+    // Imported spokes are never "platform", so changing the platform layout can't replace them.
+    ...(landingZone && { role: 'landing-zone' as const }),
+    prefix: v.cidr.prefix,
+    fixed: formatCidr(v.cidr),
+    ...(v.extra.length > 0 && { ranges: v.extra.map((c) => ({ prefix: c.prefix, fixed: formatCidr(c) })) }),
+    subnets: v.subnets.map((s): SubnetSpec => {
+      const k = ranges.findIndex((c) => contains(c, s.cidr));
+      return { id: newId(), name: s.name, prefix: s.cidr.prefix, offset: s.cidr.base - ranges[k].base, ...(k > 0 && { range: k }) };
+    }),
+  };
+}
 
 const byAddress = <T extends { cidr: Cidr }>(a: T, b: T) => a.cidr.base - b.cidr.base || a.cidr.prefix - b.cidr.prefix;
 
@@ -345,13 +353,15 @@ function buildRegion(location: string, vnets: FoundVnet[], hubs: FoundHub[], not
 }
 
 /**
- * Turn exported Azure network JSON into a plan. Accepts Resource Graph output
- * (see AZURE_IMPORT_QUERY), `az network vnet list` / `az network vhub list`,
- * `Get-AzVirtualNetwork | ConvertTo-Json -Depth 10`, ARM REST list responses,
- * or several of these pasted one after another. Throws with a readable message if nothing
- * usable is found.
+ * The VNets and Virtual WAN hubs in exported Azure network JSON (in any shape
+ * `importAzureNetwork` accepts), keyed by lower-cased resource id, with notes
+ * on anything skipped. Throws with a readable message if there are none.
  */
-export function importAzureNetwork(input: string, name = 'Imported Azure network'): AzureImport {
+export function readAzureNetwork(input: string): {
+  vnets: Map<string, FoundVnet>;
+  hubs: Map<string, FoundHub>;
+  notes: ImportNote[];
+} {
   const { docs: data, skippedText } = parseDocuments(input);
   const notes: ImportNote[] = [];
   if (skippedText) notes.push({ level: 'info', message: 'Text that isn’t JSON (such as CLI messages) was skipped' });
@@ -375,6 +385,18 @@ export function importAzureNetwork(input: string, name = 'Imported Azure network
     }
   }
   if (vnets.size === 0 && hubs.size === 0) throw new Error('No virtual networks or Virtual WAN hubs were found.');
+  return { vnets, hubs, notes };
+}
+
+/**
+ * Turn exported Azure network JSON into a plan. Accepts Resource Graph output
+ * (see AZURE_IMPORT_QUERY), `az network vnet list` / `az network vhub list`,
+ * `Get-AzVirtualNetwork | ConvertTo-Json -Depth 10`, ARM REST list responses,
+ * or several of these pasted one after another. Throws with a readable message if nothing
+ * usable is found.
+ */
+export function importAzureNetwork(input: string, name = 'Imported Azure network'): AzureImport {
+  const { vnets, hubs, notes } = readAzureNetwork(input);
 
   const locations = new Map<string, { vnets: FoundVnet[]; hubs: FoundHub[] }>();
   const group = (location: string) => {
@@ -386,7 +408,10 @@ export function importAzureNetwork(input: string, name = 'Imported Azure network
 
   // A region's block is the smallest one covering its networks, widened to a
   // /16 when that doesn't take in another region's networks.
-  const used = (g: { vnets: FoundVnet[]; hubs: FoundHub[] }) => [...g.vnets, ...g.hubs].map((n) => n.cidr);
+  const used = (g: { vnets: FoundVnet[]; hubs: FoundHub[] }) => [
+    ...g.vnets.flatMap((v) => [v.cidr, ...v.extra]),
+    ...g.hubs.map((h) => h.cidr),
+  ];
   const placed = [...locations].map(([location, g]) => {
     let block = supernet(used(g));
     if (block.prefix > 16) {

@@ -4,6 +4,7 @@ A browser app for planning IP address space for Azure Landing Zone network desig
 
 - **Root address space → regions → VNets → subnets.** You set a size (prefix length) for each block and the app places it in the next free aligned slot. You can also pin any block to a specific CIDR for brownfield ranges.
 - **Multiple regions, each with a /16 and its own hub.** The default root `10.0.0.0/12` holds 16 regional /16s. Each /16 picks its Azure region from a dropdown grouped by geography. Regions already used by another /16 are greyed out, and each region shows its Azure paired region. "Add region" picks East US 2 for a plan's first region and the Azure pair of the first region for the second (East US 2 → Central US). After that it picks the pair of an existing region, then another region in the same geography. The region list is a snapshot of what your subscription offers; refresh it with `npm run update-regions` (requires a logged-in Azure CLI). A Regions overview table lists every region's range and hub range. If the root runs out of space, the app suggests the smallest wider root that fits. VNet names use short region codes (`hub-eus2-vnet` for East US 2, `corp-cus-001-vnet` for Central US), and changing a region's location renames its VNets to match.
+- **Several address ranges per VNet**, as Azure allows. **+ Add address range** gives a VNet another range, sized or pinned like the main one. Extra ranges are placed in the region after every VNet's main range, so adding one never moves an existing VNet. Subnets fill the main range first and then the extra ranges, and each range has its own bar and visual editor. Removing a range places its subnets automatically again. The IaC export lists every range in the VNet's address space.
 - **Visual subnet editor** for each VNet, inspired by [visualsubnetcalc.com](https://visualsubnetcalc.com/). Every row is a block of the VNet's range:
   - **Divide** splits a row in half.
   - Typing a name turns a free block into a subnet.
@@ -27,6 +28,7 @@ A browser app for planning IP address space for Azure Landing Zone network desig
   - non-private or forbidden root ranges
   - overlaps and overflow
 - **Table view** with first and last addresses, plus a "Copy as CSV" button.
+- **Undo and redo** (↶ ↷, Ctrl+Z and Ctrl+Y or Ctrl+Shift+Z) for every plan edit, including platform layout switches and Auto-pack. Edits within a second of each other, like typing a name, are one step. Opening a design, an import or a share link starts a fresh history.
 - **Export IaC** generates two files for Bicep or for Terraform (azurerm 4.x), ready to copy or download:
   - a **reusable template**, `alz-network.bicep` or `main.tf`. Every input is a typed parameter or variable, with no names, CIDRs or regions hard-coded, so the same template deploys any plan.
   - a **variables file** for the chosen environment, `alz-network.prd.bicepparam` or `prd.tfvars`. It holds this plan's values:
@@ -65,11 +67,19 @@ The **Designs** button keeps multiple named designs:
 
 ## Share link
 
-**Share** copies a link that opens the current plan, with its IaC naming options. The design is compressed into the part of the link after `#`, which browsers never send to a server, so nothing is uploaded: anyone with the link has the design, and nobody else does. The default plan makes a link of about 700 characters. Opening a link shows what it holds and asks before replacing the current plan; **Open and save to my designs** also keeps it as a saved design. The design is then removed from the address bar, so a reload doesn't offer it again.
+**⋯ → Copy share link** copies a link that opens the current plan, with its IaC naming options. The design is compressed into the part of the link after `#`, which browsers never send to a server, so nothing is uploaded: anyone with the link has the design, and nobody else does. The default plan makes a link of about 700 characters. Opening a link shows what it holds and asks before replacing the current plan; **Open and save to my designs** also keeps it as a saved design. The design is then removed from the address bar, so a reload doesn't offer it again.
+
+## Compare with Azure
+
+**⋯ → Compare with Azure** checks the current plan against what is deployed. It takes the same command output as the import (below), read in the browser and sent nowhere. Each planned VNet and Virtual WAN hub is matched to a deployed one by the name the IaC export gives it (using the naming options set in Export IaC) or by its planner name, and failing that by overlapping address space in the same location. The result lists:
+- **Different**: address ranges, location, or subnets that don't match, or that exist on only one side
+- **Only in Azure**: deployed networks the plan doesn't have, marked **Overlaps the plan** when they clash with planned address space
+- **Not deployed**: planned networks with nothing in Azure yet
+- **Matches**: hidden unless you untick "Only differences"
 
 ## Import from Azure
 
-**Import from Azure** brings an existing network into the planner, to check it against the Azure rules and plan what comes next. The app can't call Azure, so you export the network yourself and paste or load the output. It is read in the browser and sent nowhere. The dialog has a command to copy for each of these:
+**⋯ → Import from Azure** brings an existing network into the planner, to check it against the Azure rules and plan what comes next. The app can't call Azure, so you export the network yourself and paste or load the output. It is read in the browser and sent nowhere. The dialog has a command to copy for each of these:
 - **Azure CLI · Resource Graph**: VNets and Virtual WAN hubs across every subscription you can read (`az graph query`, needs the `resource-graph` extension). Over 1,000 results come in pages; paste every page together.
 - **Azure CLI**: `az network vnet list` and `az network vhub list` for the current subscription (`vhub` needs the `virtual-wan` extension).
 - **Azure PowerShell**: `Get-AzVirtualNetwork` and `Get-AzVirtualHub`, converted with `ConvertTo-Json -Depth 10`.
@@ -79,7 +89,7 @@ Output from several commands or subscriptions can be pasted together. CLI messag
 How the network is turned into a plan:
 - Each Azure location is a region. A Virtual WAN hub there makes it a Virtual WAN region. Otherwise the hub is the VNet with a gateway or firewall subnet, failing that the one with the most peerings, and the other VNets are spokes.
 - Everything is pinned where it is: region ranges (a /16 where that doesn't take in another region's VNets, otherwise the smallest range covering the region), VNets and subnet positions. The root range is the smallest range covering all regions. Overlaps and rule breaks in the real network show up as the planner's usual errors.
-- A planner VNet has one address range, so for a VNet with several only the range holding the most subnets is imported. The others are listed in the notes. Imported spokes are landing zones, so changing a region's platform layout never replaces them.
+- A VNet with several address ranges keeps them all: the first one Azure lists is its main range and the others are extra ranges, each holding its own subnets. Imported spokes are landing zones, so changing a region's platform layout never replaces them.
 
 ## Run
 

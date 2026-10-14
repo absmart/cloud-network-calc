@@ -20,7 +20,10 @@ function flatten(result: PlanResult): Row[] {
     const base = { regionIndex, region: region.name };
     rows.push({ ...base, key: region.id, level: 'Region', vnet: '', name: region.name, cidr: region.cidr });
     for (const vnet of [region.hub, ...region.spokes]) {
-      rows.push({ ...base, key: vnet.id, level: 'VNet', vnet: vnet.name, name: vnet.name, cidr: vnet.cidr });
+      vnet.ranges.forEach((cidr, k) => {
+        const name = k ? `${vnet.name} (range ${k + 1})` : vnet.name;
+        rows.push({ ...base, key: k ? `${vnet.id}-${k}` : vnet.id, level: 'VNet', vnet: vnet.name, name, cidr });
+      });
       for (const s of vnet.subnets) {
         rows.push({ ...base, key: s.id, level: 'Subnet', vnet: vnet.name, name: s.name, cidr: s.cidr });
       }

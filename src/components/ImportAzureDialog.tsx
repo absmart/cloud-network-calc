@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { AZURE_IMPORT_COMMANDS, importAzureNetwork } from '../lib/importAzure';
+import { useEffect, useMemo, useState } from 'react';
+import { importAzureNetwork } from '../lib/importAzure';
 import { formatCidr } from '../lib/ipv4';
 import { type PlanSpec, computePlan, countIssues } from '../lib/planner';
+import { AzureExportInput, LoadFileButton } from './AzureExportInput';
 
 const DEFAULT_NAME = 'Imported Azure network';
 
@@ -10,13 +11,8 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 /** Paste or load an export of an existing Azure network and open it as a new design. */
 export function ImportAzureDialog(props: { onImport: (plan: PlanSpec) => void; onClose: () => void }) {
   const { onClose } = props;
-  const [source, setSource] = useState(AZURE_IMPORT_COMMANDS[0].id);
   const [input, setInput] = useState('');
   const [name, setName] = useState(DEFAULT_NAME);
-  const [copied, setCopied] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const command = AZURE_IMPORT_COMMANDS.find((c) => c.id === source) ?? AZURE_IMPORT_COMMANDS[0];
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -32,16 +28,6 @@ export function ImportAzureDialog(props: { onImport: (plan: PlanSpec) => void; o
       return { error: (e as Error).message };
     }
   }, [input]);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(command.command);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  };
 
   const counts = preview && 'result' in preview ? countIssues(preview.result) : null;
 
@@ -66,28 +52,7 @@ export function ImportAzureDialog(props: { onImport: (plan: PlanSpec) => void; o
           anywhere: the output is read in this browser.
         </p>
 
-        <div className="tabs import-sources">
-          {AZURE_IMPORT_COMMANDS.map((c) => (
-            <button key={c.id} className={source === c.id ? 'active' : ''} onClick={() => setSource(c.id)}>
-              {c.label}
-            </button>
-          ))}
-        </div>
-        <p className="muted">
-          Exports the VNets and Virtual WAN hubs in {command.scope}. {command.hint}
-        </p>
-        <div className="command">
-          <code>{command.command}</code>
-          <button onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
-        </div>
-
-        <textarea
-          className="code import-input"
-          placeholder="Paste the JSON output here"
-          spellCheck={false}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-        />
+        <AzureExportInput value={input} onChange={setInput} />
 
         {preview && 'error' in preview && (
           <ul className="issues">
@@ -149,18 +114,7 @@ export function ImportAzureDialog(props: { onImport: (plan: PlanSpec) => void; o
         )}
 
         <div className="row footer">
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".json,application/json,text/plain"
-            hidden
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (file) setInput(await file.text());
-            }}
-          />
-          <button onClick={() => fileInput.current?.click()}>Load file…</button>
+          <LoadFileButton onLoad={setInput} />
           <label className="import-name">
             Design name
             <input value={name} onChange={(e) => setName(e.target.value)} />

@@ -166,12 +166,14 @@ export function RegionCard(props: {
       <AllocationBar
         parent={result.cidr}
         free={result.free}
-        segments={vnetResults.map((v, i) => ({
-          id: v.id,
-          label: v.name,
-          cidr: v.cidr,
-          tone: v.kind !== 'spoke' ? 'hub' : isPlatformVnet(spec.spokes[i - 1]) ? 'platform' : 'spoke',
-        }))}
+        segments={vnetResults.flatMap((v, i) =>
+          v.ranges.map((cidr, k) => ({
+            id: k ? `${v.id}-${k}` : v.id,
+            label: k ? `${v.name} (range ${k + 1})` : v.name,
+            cidr,
+            tone: v.kind !== 'spoke' ? 'hub' : isPlatformVnet(spec.spokes[i - 1]) ? 'platform' : 'spoke',
+          })),
+        )}
       />
 
       <VnetCard

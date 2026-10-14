@@ -27,7 +27,7 @@ describe('IaC export', () => {
     // Central US hub → East US 2 hub, named after the remote VNet.
     expect(m.peerings.at(-1)!.name).toBe('hub-prd-eus2-01-peer');
     const hub = m.vnets[0];
-    expect(hub).toMatchObject({ name: 'hub-prd-eus2-01-vnet', location: 'eastus2', prefix: '10.0.0.0/22' });
+    expect(hub).toMatchObject({ name: 'hub-prd-eus2-01-vnet', location: 'eastus2', prefixes: ['10.0.0.0/22'] });
     expect(hub.subnets.find((s) => s.name === 'dns-inbound-prd-eus2-01-snet')!.delegation).toBe('Microsoft.Network/dnsResolvers');
     expect(hub.subnets.find((s) => s.name === 'GatewaySubnet')!.delegation).toBeUndefined();
     expect(m.omitted).toEqual([]);
@@ -39,16 +39,18 @@ describe('IaC export', () => {
     const m = model(plan);
     expect(m.vnets).toHaveLength(9); // 2 hubs + 2 landing zones + 5 spokes in Central US
     expect(m.vnets[0].subnets.slice(-3)).toEqual([
-      { name: 'identity-prd-eus2-01-snet', prefix: '10.0.3.0/27' },
-      { name: 'management-prd-eus2-01-snet', prefix: '10.0.3.32/27' },
-      { name: 'security-prd-eus2-01-snet', prefix: '10.0.3.64/27' },
+      { name: 'identity-prd-eus2-01-snet', plannerName: 'identity-snet', prefix: '10.0.3.0/27' },
+      { name: 'management-prd-eus2-01-snet', plannerName: 'management-snet', prefix: '10.0.3.32/27' },
+      { name: 'security-prd-eus2-01-snet', plannerName: 'security-snet', prefix: '10.0.3.64/27' },
     ]);
     expect(m.omitted).toEqual([]);
   });
 
   it('models Virtual WAN regions as virtual hubs with spoke connections', () => {
     const m = model(vwanPlan());
-    expect(m.virtualHubs).toEqual([{ name: 'hub-prd-eus2-01-vhub', location: 'eastus2', prefix: '10.0.0.0/23' }]);
+    expect(m.virtualHubs).toEqual([
+      expect.objectContaining({ name: 'hub-prd-eus2-01-vhub', plannerName: 'hub-eus2-vhub', location: 'eastus2', prefix: '10.0.0.0/23' }),
+    ]);
     expect(m.virtualWan).toBe('network-prd-eus2-01-vwan');
     expect(m.hubConnections[0].name).toBe('identity-prd-eus2-01-conn');
     expect(m.hubConnections).toHaveLength(5);
@@ -168,6 +170,19 @@ describe('IaC export', () => {
     expect(wanParams.content).toContain("virtualHub: 'hub-prd-eus2-01-vhub'");
     const [, wanVars] = files('terraform', vwanPlan());
     expect(wanVars.content).toContain('virtual_hub = "hub-prd-eus2-01-vhub"');
+  });
+
+  it('exports every address range of a VNet, and lists ranges it leaves out', () => {
+    const plan = defaultPlan();
+    plan.regions[0].spokes[3].ranges = [{ prefix: 24, fixed: '10.0.200.0/24' }, { prefix: 24, fixed: '10.5.0.0/24' }];
+    const m = model(plan);
+    expect(m.vnets.find((v) => v.name === 'corp-prd-eus2-001-vnet')!.prefixes).toEqual(['10.0.8.0/22', '10.0.200.0/24']);
+    expect(m.omitted).toEqual(['address range 3 of VNet corp-eus2-001-vnet']);
+
+    const [, params] = files('bicep', plan);
+    expect(params.content).toContain("    addressPrefixes: [\n      '10.0.8.0/22'\n      '10.0.200.0/24'\n    ]");
+    const [, tfvars] = files('terraform', plan);
+    expect(tfvars.content).toMatch(/address_space = \["10\.0\.8\.0\/22", "10\.0\.200\.0\/24"\]/);
   });
 
   it('names the variables file after the environment', () => {
