@@ -423,7 +423,7 @@ label {
   border-color: transparent;
   background: transparent;
   min-width: 0;
-  flex: 1 1 220px;
+  flex: 1 1 150px;
 }
 
 .root {

@@ -68,7 +68,7 @@ export function backupFileName(designs: SavedDesign[], now = new Date()): string
   return `alz-design-${slug}-${date}.json`;
 }
 
-const isPlan = (value: unknown): value is PlanSpec => {
+export const isPlan = (value: unknown): value is PlanSpec => {
   const p = value as PlanSpec;
   return !!p && typeof p === 'object' && p.version === 1 && typeof p.root === 'string' && Array.isArray(p.regions);
 };

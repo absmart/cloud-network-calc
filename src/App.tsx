@@ -3,6 +3,7 @@ import { AllocationBar, Issues, regionColor } from './components/common';
 import { DesignsDialog } from './components/DesignsDialog';
 import { ExportDialog } from './components/ExportDialog';
 import { ImportAzureDialog } from './components/ImportAzureDialog';
+import { SharedLinkDialog } from './components/SharedLinkDialog';
 import { RegionCard } from './components/RegionCard';
 import { SummaryTable } from './components/SummaryTable';
 import { RegionOverview } from './components/RegionOverview';
@@ -24,6 +25,7 @@ import {
 } from './lib/designs';
 import { formatCidr } from './lib/ipv4';
 import { type PlanSpec, type RegionSpec, computePlan, countIssues } from './lib/planner';
+import { type SharedDesign, decodeDesign, isShareFragment, shareUrl } from './lib/shareLink';
 import { STORAGE_KEYS, loadNaming, readJson, writeJson } from './lib/storage';
 
 const ALL = 'all';
@@ -39,6 +41,9 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [showDesigns, setShowDesigns] = useState(false);
   const [importingAzure, setImportingAzure] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  // A design from a share link the app was opened with, waiting to be opened.
+  const [incoming, setIncoming] = useState<{ shared: SharedDesign | null; error: string | null } | null>(null);
   const [storageOk, setStorageOk] = useState(true);
   const result = useMemo(() => computePlan(plan), [plan]);
   const counts = countIssues(result);
@@ -99,7 +104,49 @@ export default function App() {
     setImportingAzure(false);
   };
 
-  const renameSavedDesign =(id: string, name: string) => {
+  useEffect(() => {
+    // Read a share link on load, or when one is pasted into this tab's address bar.
+    const readLink = () => {
+      const hash = window.location.hash;
+      if (!isShareFragment(hash)) return;
+      // Drop the design from the address bar so a reload doesn't offer it again.
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      decodeDesign(hash).then(
+        (shared) => setIncoming({ shared, error: null }),
+        (e: Error) => setIncoming({ shared: null, error: e.message }),
+      );
+    };
+    readLink();
+    window.addEventListener('hashchange', readLink);
+    return () => window.removeEventListener('hashchange', readLink);
+  }, []);
+
+  const openShared = (shared: SharedDesign, save: boolean) => {
+    setPlan(shared.plan);
+    writeJson(STORAGE_KEYS.naming, shared.naming);
+    if (save) {
+      const design = createDesign(shared.plan, shared.naming);
+      setDesigns([...designs, design]);
+      setActiveDesignId(design.id);
+    } else {
+      setActiveDesignId(null);
+    }
+    setSelected(shared.plan.regions[0]?.id ?? ALL);
+    setIncoming(null);
+  };
+
+  const copyShareLink = async () => {
+    const url = await shareUrl(window.location.href, plan, loadNaming());
+    try {
+      await navigator.clipboard.writeText(url);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      window.prompt('Copy this link to share the design:', url);
+    }
+  };
+
+  const renameSavedDesign = (id: string, name: string) => {
     setDesigns(designs.map((d) => (d.id === id ? renameDesign(d, name) : d)));
     // Keep the open plan's title in step, so a rename alone isn't an unsaved change.
     if (id === activeDesignId) setPlan({ ...plan, name });
@@ -169,6 +216,12 @@ export default function App() {
             {counts.errors} errors · {counts.warnings} warnings
           </span>
           <button onClick={() => setShowDesigns(true)}>Designs{designs.length ? ` (${designs.length})` : ''}</button>
+          <button
+            title="Copy a link that opens this design, with its naming options. The design is inside the link itself and isn't uploaded anywhere."
+            onClick={() => void copyShareLink()}
+          >
+            {linkCopied ? 'Copied' : 'Share'}
+          </button>
           <button title="Load an existing Azure network from Azure CLI or PowerShell output" onClick={() => setImportingAzure(true)}>
             Import from Azure
           </button>
@@ -256,7 +309,22 @@ export default function App() {
         )}
       </main>
       {exporting && <ExportDialog plan={plan} result={result} onClose={() => setExporting(false)} />}
-      {importingAzure && <ImportAzureDialog onImport={openImported} onClose={() => setImportingAzure(false)} />}
+      {incoming && (
+        <SharedLinkDialog
+          shared={incoming.shared}
+          error={incoming.error}
+          warning={
+            activeDesign
+              ? unsaved
+                ? `Opening it replaces "${activeDesign.name}", which has unsaved changes.`
+                : null
+              : 'Opening it replaces the current plan, which isn’t saved as a design.'
+          }
+          onOpen={(save) => incoming.shared && openShared(incoming.shared, save)}
+          onClose={() => setIncoming(null)}
+        />
+      )}
+      {importingAzure &&<ImportAzureDialog onImport={openImported} onClose={() => setImportingAzure(false)} />}
       {showDesigns && (
         <DesignsDialog
           plan={plan}

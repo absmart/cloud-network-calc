@@ -63,6 +63,10 @@ The **Designs** button keeps multiple named designs:
 - Each design keeps the full plan (regions, CIDRs, VNets, subnets, layouts) and the IaC naming options.
 - **Export** one design, the current plan, or **all** designs to a `.json` backup, and **Import** them again here or in another browser. Saved designs live in this browser only, so export them to keep a real backup.
 
+## Share link
+
+**Share** copies a link that opens the current plan, with its IaC naming options. The design is compressed into the part of the link after `#`, which browsers never send to a server, so nothing is uploaded: anyone with the link has the design, and nobody else does. The default plan makes a link of about 700 characters. Opening a link shows what it holds and asks before replacing the current plan; **Open and save to my designs** also keeps it as a saved design. The design is then removed from the address bar, so a reload doesn't offer it again.
+
 ## Import from Azure
 
 **Import from Azure** brings an existing network into the planner, to check it against the Azure rules and plan what comes next. The app can't call Azure, so you export the network yourself and paste or load the output. It is read in the browser and sent nowhere. The dialog has a command to copy for each of these:
