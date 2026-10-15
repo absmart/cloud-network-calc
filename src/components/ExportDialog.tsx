@@ -90,7 +90,7 @@ export function ExportDialog(props: {
           and environments. One deployment covers every subscription:{' '}
           {format === 'bicep'
             ? 'Bicep deploys at a management group above them, with modules per subscription and resource group, and downloads as a .zip.'
-            : 'Terraform uses the azapi provider, which reaches any subscription by resource ID.'}
+            : 'Terraform (azurerm) has a provider alias per subscription in main.tf, calling generic modules, and downloads as a .zip.'}
           {format === 'terragrunt' &&
             ' Terragrunt adds a root.hcl for remote state and the provider, with this plan as the inputs of live/<env>/alz-network; it downloads as a .zip that keeps the folders.'}
         </p>

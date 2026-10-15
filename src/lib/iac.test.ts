@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SPOKE_TEMPLATES, defaultPlan, makeRegion } from './defaults';
-import { type IacFormat, TERRAGRUNT_ROOT, buildIacModel, generateIacFiles, toBicepParams, toTfvars } from './iac';
+import { type IacFormat, TERRAGRUNT_ROOT, buildIacModel, generateIacFiles, providerAliases, toBicepParams, toTfvars } from './iac';
 import { crc32, createZip } from './zip';
 import { DEFAULT_NAMING, type NamingOptions } from './naming';
 import { type PlanSpec, computePlan } from './planner';
@@ -141,10 +141,11 @@ describe('IaC export', () => {
     const a = files('bicep', defaultPlan());
     const b = files('bicep', vwanPlan(), { app: 'other', environment: 'dev', instance: '07' });
     expect(a[0].content).toBe(b[0].content);
+    // Terraform's root depends only on the plan's subscriptions; its modules on nothing.
     expect(files('terraform', defaultPlan())[0].content).toBe(files('terraform', vwanPlan())[0].content);
 
-    // No plan values in the templates...
-    for (const [template] of [a, files('terraform', defaultPlan())]) {
+    // No plan values in the templates and modules (everything but the variables file)...
+    for (const template of [...a.slice(0, -1), ...files('terraform', { ...defaultPlan(), placement: 'alz' }).slice(0, -1)]) {
       expect(template.content).not.toMatch(/10\.0\.|eastus2|prd-eus2|eus2-01|GatewaySubnet/);
     }
     // ...every input is a parameter / variable.
@@ -155,6 +156,32 @@ describe('IaC export', () => {
     for (const v of ['subscriptions', 'resource_groups', 'tags', 'vnets', 'peerings', 'virtual_wan', 'virtual_hubs', 'hub_connections']) {
       expect(tf).toContain(`variable "${v}" {`);
     }
+  });
+
+  it('gives Terraform an azurerm provider and a pair of module calls per subscription', () => {
+    const root = files('terraform', { ...defaultPlan(), placement: 'alz' })[0].content;
+    const aliases = [...root.matchAll(/^ {2}alias {11}= "([a-z0-9_]+)"$/gm)].map((m) => m[1]);
+    expect(aliases).toEqual([
+      'connectivity',
+      'identity',
+      'management',
+      'security',
+      'corp_eus2_001',
+      'online_eus2_001',
+      'corp_cus_001',
+      'online_cus_001',
+    ]);
+    expect(root).toContain('provider "azurerm" {\n  alias           = "corp_eus2_001"\n  subscription_id = var.subscriptions["corp-eus2-001"]');
+    expect(root).toContain('module "network_corp_eus2_001" {\n  source    = "./modules/network"\n  providers = { azurerm = azurerm.corp_eus2_001 }');
+    expect(root).toContain('module "links_corp_eus2_001" {');
+    expect(root).not.toContain('azapi');
+    // Aliases are valid and unique whatever the keys: subscription IDs, clashes after cleaning.
+    expect([...providerAliases(['0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', 'corp-a', 'corp_a', '--'])].map(([, a]) => a)).toEqual([
+      'sub_0f1e2d3c_4b5a_6978_8796_a5b4c3d2e1f0',
+      'corp_a',
+      'corp_a_2',
+      'subscription',
+    ]);
   });
 
   it('puts the plan into the variables files', () => {
@@ -168,7 +195,7 @@ describe('IaC export', () => {
     expect(params.content).toContain("remoteVnet: 'identity-prd-eus2-01-vnet'");
     expect(params.content).not.toContain('param virtualWan');
 
-    const [, tfvars] = files('terraform', defaultPlan());
+    const tfvars = files('terraform', defaultPlan()).at(-1)!;
     expect(tfvars.content).toContain('"hub-prd-eus2-01-vnet" = {');
     expect(tfvars.content).toContain('"GatewaySubnet"');
     expect(tfvars.content).toContain('remote_vnet             = "identity-prd-eus2-01-vnet"');
@@ -177,7 +204,7 @@ describe('IaC export', () => {
     const wanParams = files('bicep', vwanPlan()).at(-1)!;
     expect(wanParams.content).toContain("param virtualWan = {\n  name: 'network-prd-eus2-01-vwan'\n  location: 'eastus2'\n  subscription: 'main'");
     expect(wanParams.content).toContain("virtualHub: 'hub-prd-eus2-01-vhub'");
-    const [, wanVars] = files('terraform', vwanPlan());
+    const wanVars = files('terraform', vwanPlan()).at(-1)!;
     expect(wanVars.content).toContain('virtual_hub = "hub-prd-eus2-01-vhub"');
   });
 
@@ -190,7 +217,7 @@ describe('IaC export', () => {
 
     const params = files('bicep', plan).at(-1)!;
     expect(params.content).toContain("    addressPrefixes: [\n      '10.0.8.0/22'\n      '10.0.200.0/24'\n    ]");
-    const [, tfvars] = files('terraform', plan);
+    const tfvars = files('terraform', plan).at(-1)!;
     expect(tfvars.content).toMatch(/address_space +\= \["10\.0\.8\.0\/22", "10\.0\.200\.0\/24"\]/);
   });
 
@@ -204,15 +231,20 @@ describe('IaC export', () => {
       'modules/links.bicep',
       'alz-network.dev.bicepparam',
     ]);
-    expect(files('terraform', defaultPlan(), naming).map((f) => f.name)).toEqual(['main.tf', 'dev.tfvars']);
-    expect(files('terraform', defaultPlan(), naming)[1].content).toContain('terraform apply -var-file=dev.tfvars');
+    expect(files('terraform', defaultPlan(), naming).map((f) => f.name)).toEqual([
+      'main.tf',
+      'modules/network/main.tf',
+      'modules/links/main.tf',
+      'dev.tfvars',
+    ]);
+    expect(files('terraform', defaultPlan(), naming).at(-1)!.content).toContain('terraform apply -var-file=dev.tfvars');
   });
 
   it('lists what it leaves out', () => {
     const plan = defaultPlan();
     plan.root = '10.0.0.0/16';
     expect(model(plan).omitted).toEqual(['region Central US']);
-    expect(files('terraform', plan)[1].content).toContain('#   - region Central US');
+    expect(files('terraform', plan).at(-1)!.content).toContain('#   - region Central US');
   });
 
   it('escapes names for each language', () => {
@@ -228,18 +260,18 @@ describe('IaC export', () => {
     expect(tg.map((f) => f.name)).toEqual([
       'root.hcl',
       'modules/alz-network/main.tf',
+      'modules/alz-network/modules/network/main.tf',
+      'modules/alz-network/modules/links/main.tf',
       'live/dev/alz-network/terragrunt.hcl',
       'README.md',
     ]);
-    const [root, module, live] = tg.map((f) => f.content);
+    const [root, module, network, links, live] = tg.map((f) => f.content);
     expect(root).toContain('backend = "azurerm"');
-    expect(root).toContain('generate "provider"');
-    // The module is the Terraform template without the provider block.
-    expect(module).not.toContain('provider "azapi"');
-    expect(module).toContain('variable "vnets" {');
-    expect(module.replace(/^#.*\n/gm, '')).toBe(
-      files('terraform', defaultPlan())[0].content.replace(/^#.*\n/gm, '').replace(/\nprovider "azapi" \{\}\n/, ''),
-    );
+    // The providers are in the module, one per subscription, so root.hcl doesn't generate one.
+    expect(root).not.toContain('generate "provider"');
+    // The module is the same Terraform configuration and modules as the Terraform export.
+    const tf = files('terraform', defaultPlan(), naming);
+    expect([module, network, links]).toEqual(tf.slice(0, 3).map((f) => f.content));
     expect(live).toContain('path = find_in_parent_folders("root.hcl")');
     expect(live).toContain('source = "${get_parent_terragrunt_dir("root")}/modules//alz-network"');
     expect(live).toContain('inputs = {\n  subscriptions = {\n    "main" = "00000000-0000-0000-0000-000000000000" # replace');
