@@ -113,20 +113,42 @@ export function availableBlocks(parent: Cidr, prefix: number, taken: Cidr[], lim
   return out;
 }
 
+/** Address space nothing may be placed in, such as an on-premises range. */
+export interface Blocked {
+  cidr: Cidr;
+  label: string;
+}
+
 /**
  * Place child blocks inside `parent`. Pinned (`fixed`) requests are placed
  * first; the rest go first-fit in request order on their natural alignment,
- * so appending a new request never moves the existing ones.
+ * so appending a new request never moves the existing ones. Blocks keep out
+ * of `blocked` space: automatic ones go round it and a pinned one overlapping
+ * it is an error. With `mayEnclose`, a block may still hold blocked space
+ * smaller than itself (a region around an excluded /24, which its VNets then
+ * avoid), but not overlap blocked space as large as itself or larger.
  */
-export function allocate(parent: Cidr, requests: AllocRequest[]): AllocResult[] {
+export function allocate(
+  parent: Cidr,
+  requests: AllocRequest[],
+  blocked: Blocked[] = [],
+  { mayEnclose = false } = {},
+): AllocResult[] {
   const results: AllocResult[] = new Array(requests.length);
   const used: Cidr[] = [];
+  const barriers = blocked.filter((b) => overlaps(parent, b.cidr));
+  const barrierIn = (c: Cidr) => barriers.find((b) => overlaps(b.cidr, c) && !(mayEnclose && c.prefix < b.cidr.prefix));
 
   requests.forEach((req, i) => {
     const fixed = req.fixed;
     if (!fixed) return;
     if (!contains(parent, fixed)) {
       results[i] = { error: `${formatCidr(fixed)} is outside ${formatCidr(parent)}` };
+      return;
+    }
+    const excluded = barrierIn(fixed);
+    if (excluded) {
+      results[i] = { error: `${formatCidr(fixed)} overlaps excluded range ${formatCidr(excluded.cidr)} (${excluded.label})` };
       return;
     }
     const clash = used.find((u) => overlaps(u, fixed));
@@ -149,7 +171,7 @@ export function allocate(parent: Cidr, requests: AllocRequest[]): AllocResult[] 
     let addr = parent.base;
     while (addr + step <= end) {
       const candidate = { base: addr, prefix: req.prefix };
-      const clash = used.find((u) => overlaps(u, candidate));
+      const clash = used.find((u) => overlaps(u, candidate)) ?? barrierIn(candidate)?.cidr;
       if (!clash) {
         used.push(candidate);
         results[i] = { cidr: candidate };

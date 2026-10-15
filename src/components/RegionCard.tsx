@@ -8,10 +8,10 @@ import {
   setPlatformLayout,
   setTopology,
 } from '../lib/defaults';
-import { type Cidr, availableBlocks, blockSize, formatCidr, parseCidr } from '../lib/ipv4';
+import { type Blocked, type Cidr, availableBlocks, blockSize, formatCidr, parseCidr } from '../lib/ipv4';
 import { findRegion, regionsByGeography } from '../lib/regions';
 import type { PlatformLayout, RegionResult, RegionSpec, Topology, VnetSpec } from '../lib/planner';
-import { AllocationBar, Issues, PrefixSelect } from './common';
+import { AllocationBar, Issues, PrefixSelect, type Segment, excludedSegments } from './common';
 import { VnetCard } from './VnetCard';
 
 export function RegionCard(props: {
@@ -21,6 +21,8 @@ export function RegionCard(props: {
   /** The plan's root range, and the ranges the other regions occupy, for "Move to". */
   root: Cidr | null;
   otherRegionCidrs: Cidr[];
+  /** The plan's excluded ranges, shown on the bar and kept out of Move to. */
+  excluded: Blocked[];
   color: string;
   /** Locations taken by the plan's other regions → that region's name. */
   usedLocations: Map<string, string>;
@@ -36,7 +38,11 @@ export function RegionCard(props: {
   const pin = pinned ? parseCidr(spec.fixed!) : null;
   const currentPrefix = pin?.ok ? pin.cidr.prefix : spec.prefix;
   const freeBlocks = props.root
-    ? availableBlocks(props.root, currentPrefix, props.otherRegionCidrs).filter(
+    ? availableBlocks(props.root, currentPrefix, [
+        ...props.otherRegionCidrs,
+        // A region may enclose a smaller excluded range, but not sit on a larger one.
+        ...props.excluded.filter((e) => e.cidr.prefix <= currentPrefix).map((e) => e.cidr),
+      ]).filter(
         (c) => !result.cidr || c.base !== result.cidr.base || c.prefix !== result.cidr.prefix,
       )
     : [];
@@ -167,13 +173,13 @@ export function RegionCard(props: {
         parent={result.cidr}
         free={result.free}
         segments={vnetResults.flatMap((v, i) =>
-          v.ranges.map((cidr, k) => ({
+          v.ranges.map((cidr, k): Segment => ({
             id: k ? `${v.id}-${k}` : v.id,
             label: k ? `${v.name} (range ${k + 1})` : v.name,
             cidr,
             tone: v.kind !== 'spoke' ? 'hub' : isPlatformVnet(spec.spokes[i - 1]) ? 'platform' : 'spoke',
           })),
-        )}
+        ).concat(excludedSegments(props.excluded))}
       />
 
       <VnetCard
