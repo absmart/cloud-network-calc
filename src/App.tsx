@@ -1,5 +1,6 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
-import { AllocationBar, Issues, regionColor } from './components/common';
+import { AllocationBar, Issues, excludedSegments, regionColor } from './components/common';
+import { ExcludedRanges } from './components/ExcludedRanges';
 import { CompareAzureDialog } from './components/CompareAzureDialog';
 import { DesignsDialog } from './components/DesignsDialog';
 import { ExportDialog } from './components/ExportDialog';
@@ -279,13 +280,16 @@ export default function App() {
         <AllocationBar
           parent={result.root}
           free={result.free}
-          segments={result.regions.map((r, i) => ({
-            id: r.id,
-            label: r.name,
-            cidr: r.cidr,
-            tone: 'region',
-            color: regionColor(i),
-          }))}
+          segments={[
+            ...result.regions.map((r, i) => ({
+              id: r.id,
+              label: r.name,
+              cidr: r.cidr,
+              tone: 'region' as const,
+              color: regionColor(i),
+            })),
+            ...excludedSegments(result.excluded),
+          ]}
         />
         {view === 'design' && (
           <nav className="region-tabs" aria-label="Regions">
@@ -326,6 +330,7 @@ export default function App() {
         ) : (
           <>
             <RegionOverview plan={plan} result={result} selected={activeTab} onSelect={setSelected} />
+            <ExcludedRanges ranges={plan.excluded ?? []} onChange={(excluded) => setPlan({ ...plan, excluded })} />
             {plan.regions.map((region, i) =>
               activeTab !== ALL && activeTab !== region.id ? null : (
                 <RegionCard
@@ -335,6 +340,7 @@ export default function App() {
                   color={regionColor(i)}
                   minPrefix={result.root?.prefix ?? 8}
                   root={result.root}
+                  excluded={result.excluded}
                   otherRegionCidrs={result.regions.flatMap((r, j) => (j !== i && r.cidr ? [r.cidr] : []))}
                   usedLocations={new Map(plan.regions.filter((_, j) => j !== i).map((r) => [r.location, r.name]))}
                   onChange={(r) => updateRegion(i, r)}

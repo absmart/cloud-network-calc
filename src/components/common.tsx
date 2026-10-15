@@ -1,4 +1,4 @@
-import { type Cidr, blockSize, formatCidr } from '../lib/ipv4';
+import { type Blocked, type Cidr, blockSize, endOf, formatCidr } from '../lib/ipv4';
 import type { Issue } from '../lib/planner';
 
 export function PrefixSelect(props: {
@@ -72,7 +72,8 @@ export interface Segment {
   id: string;
   label: string;
   cidr: Cidr | null;
-  tone: 'region' | 'hub' | 'platform' | 'spoke' | 'subnet' | 'special';
+  /** `excluded` is drawn hatched and doesn't count as allocated. */
+  tone: 'region' | 'hub' | 'platform' | 'spoke' | 'subnet' | 'special' | 'excluded';
   /** Overrides the tone's colour. */
   color?: string;
 }
@@ -80,15 +81,26 @@ export interface Segment {
 export function AllocationBar({ parent, segments, free }: { parent: Cidr | null; segments: Segment[]; free: Cidr[] }) {
   if (!parent) return null;
   const total = blockSize(parent.prefix);
-  const used = segments.reduce((n, s) => n + (s.cidr ? blockSize(s.cidr.prefix) : 0), 0);
+  // The part of a segment inside the bar; an excluded range can stick out of it.
+  const visible = (c: Cidr) => {
+    const start = Math.max(c.base, parent.base);
+    return { start, size: Math.max(0, Math.min(endOf(c), endOf(parent)) - start) };
+  };
+  const used = segments.reduce((n, s) => n + (s.cidr && s.tone !== 'excluded' ? visible(s.cidr).size : 0), 0);
+  // `free` already leaves out allocated and excluded space. What is neither is
+  // excluded space outside the allocated blocks (a region may enclose some).
+  const freeSize = free.reduce((n, f) => n + visible(f).size, 0);
+  const excluded = Math.max(0, total - used - freeSize);
   const largestFree = [...free].sort((a, b) => a.prefix - b.prefix).slice(0, 4);
   return (
     <div className="bar-wrap">
       <div className="bar">
         {segments.map((s) => {
           if (!s.cidr) return null;
-          const left = ((s.cidr.base - parent.base) / total) * 100;
-          const width = (blockSize(s.cidr.prefix) / total) * 100;
+          const { start, size } = visible(s.cidr);
+          if (size === 0) return null;
+          const left = ((start - parent.base) / total) * 100;
+          const width = (size / total) * 100;
           return (
             <div
               key={s.id}
@@ -102,7 +114,8 @@ export function AllocationBar({ parent, segments, free }: { parent: Cidr | null;
         })}
       </div>
       <div className="bar-caption">
-        {((used / total) * 100).toFixed(1)}% allocated · {(total - used).toLocaleString()} addresses free
+        {((used / total) * 100).toFixed(1)}% allocated · {freeSize.toLocaleString()} addresses free
+        {excluded > 0 && <> · {excluded.toLocaleString()} excluded</>}
         {largestFree.length > 0 && (
           <> · largest free blocks: {largestFree.map(formatCidr).join(', ')}</>
         )}
@@ -110,3 +123,7 @@ export function AllocationBar({ parent, segments, free }: { parent: Cidr | null;
     </div>
   );
 }
+
+/** Bar segments for the plan's excluded ranges. */
+export const excludedSegments = (excluded: Blocked[]): Segment[] =>
+  excluded.map((e, i) => ({ id: `excluded-${i}`, label: `Excluded: ${e.label}`, cidr: e.cidr, tone: 'excluded' }));

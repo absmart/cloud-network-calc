@@ -1125,3 +1125,41 @@ td {
   padding: 12px;
   margin: 0;
 }
+
+/* Excluded ranges */
+
+.seg-excluded {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--muted),
+    var(--muted) 3px,
+    transparent 3px,
+    transparent 7px
+  );
+  color: var(--text);
+  border-left: 1px solid var(--muted);
+  border-right: 1px solid var(--muted);
+}
+
+.seg-excluded span {
+  background: var(--surface);
+  border-radius: 3px;
+  margin: 0 2px;
+}
+
+.excluded-panel {
+  margin-bottom: 16px;
+}
+
+.excluded-panel .row + .row {
+  margin-top: 6px;
+}
+
+.excluded-panel input.cidr-input {
+  width: 150px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.excluded-panel input.label-input {
+  width: 240px;
+}

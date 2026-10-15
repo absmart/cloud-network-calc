@@ -3,6 +3,7 @@
 import {
   type AllocRequest,
   type AllocResult,
+  type Blocked,
   type Cidr,
   allocate,
   blockSize,
@@ -94,11 +95,19 @@ export interface RegionSpec {
   spokes: VnetSpec[];
 }
 
+/** Address space the plan must keep clear: on-premises, other clouds, partner networks. */
+export interface ExcludedRange {
+  cidr: string;
+  label?: string;
+}
+
 export interface PlanSpec {
   version: 1;
   name: string;
   root: string;
   regions: RegionSpec[];
+  /** Kept clear of every VNet. Regions are placed around them, but a pinned region may enclose one. */
+  excluded?: ExcludedRange[];
 }
 
 export interface Issue {
@@ -138,7 +147,10 @@ export interface PlanResult {
   root: Cidr | null;
   issues: Issue[];
   regions: RegionResult[];
+  /** Free space in the root, not counting excluded ranges. */
   free: Cidr[];
+  /** The plan's valid excluded ranges. */
+  excluded: Blocked[];
 }
 
 const error = (message: string): Issue => ({ level: 'error', message });
@@ -175,6 +187,18 @@ function take(result: AllocResult | undefined, issues: Issue[]): Cidr | null {
 const allocated = (nodes: NodeResult[]) =>
   nodes.map((n) => n.cidr).filter((c): c is Cidr => c !== null);
 
+/** Parse the excluded ranges, reporting any that aren't valid CIDRs. */
+function parseExcluded(list: ExcludedRange[], issues: Issue[]): Blocked[] {
+  return list.flatMap((e, i) => {
+    const label = e.label?.trim() || `excluded range ${i + 1}`;
+    if (!e.cidr.trim()) return [];
+    const parsed = parseCidr(e.cidr);
+    if (parsed.ok) return [{ cidr: parsed.cidr, label }];
+    issues.push(error(`Excluded range "${label}": ${parsed.error}`));
+    return [];
+  });
+}
+
 export function computePlan(plan: PlanSpec): PlanResult {
   const issues: Issue[] = [];
   let root: Cidr | null = null;
@@ -191,9 +215,10 @@ export function computePlan(plan: PlanSpec): PlanResult {
 
   const regionIssues = plan.regions.map((): Issue[] => []);
   const requests = plan.regions.map((r, i) => toRequest(r.prefix, r.fixed, regionIssues[i]));
-  const allocs = root ? allocate(root, requests) : null;
+  const excluded = parseExcluded(plan.excluded ?? [], issues);
+  const allocs = root ? allocate(root, requests, excluded, { mayEnclose: true }) : null;
   const regions = plan.regions.map((r, i) =>
-    computeRegion(r, take(allocs?.[i], regionIssues[i]), regionIssues[i]),
+    computeRegion(r, take(allocs?.[i], regionIssues[i]), regionIssues[i], excluded),
   );
 
   if (root && regions.some((r) => !r.cidr)) {
@@ -217,10 +242,11 @@ export function computePlan(plan: PlanSpec): PlanResult {
       regionIssues[i].push(warning(`Another region also uses location "${r.location}"`));
   });
 
-  return { root, issues, regions, free: root ? freeBlocks(root, allocated(regions)) : [] };
+  const taken = [...allocated(regions), ...excluded.map((e) => e.cidr)];
+  return { root, issues, regions, free: root ? freeBlocks(root, taken) : [], excluded };
 }
 
-function computeRegion(spec: RegionSpec, cidr: Cidr | null, issues: Issue[]): RegionResult {
+function computeRegion(spec: RegionSpec, cidr: Cidr | null, issues: Issue[], excluded: Blocked[]): RegionResult {
   const vnets = [spec.hub, ...spec.spokes];
   const vnetIssues = vnets.map((): Issue[] => []);
   const kinds = vnets.map((_, i): VnetKind => (i > 0 ? 'spoke' : spec.topology === 'vwan' ? 'virtual-hub' : 'hub'));
@@ -234,7 +260,7 @@ function computeRegion(spec: RegionSpec, cidr: Cidr | null, issues: Issue[]): Re
           return { vnet: i, range: k + 1, issues: rangeIssues, request: toRequest(r.prefix, r.fixed, rangeIssues) };
         }),
   );
-  const allocs = cidr ? allocate(cidr, [...requests, ...extras.map((e) => e.request)]) : null;
+  const allocs = cidr ? allocate(cidr, [...requests, ...extras.map((e) => e.request)], excluded) : null;
   const extraCidrs = extras.map((e, j) => {
     const c = take(allocs?.[vnets.length + j], e.issues);
     vnetIssues[e.vnet].push(...e.issues.map((x) => ({ ...x, message: `Address range ${e.range + 1}: ${x.message}` })));
@@ -253,7 +279,7 @@ function computeRegion(spec: RegionSpec, cidr: Cidr | null, issues: Issue[]): Re
     issues,
     hub: results[0],
     spokes: results.slice(1),
-    free: cidr ? freeBlocks(cidr, used) : [],
+    free: cidr ? freeBlocks(cidr, [...used, ...excluded.map((e) => e.cidr)]) : [],
   };
 }
 
