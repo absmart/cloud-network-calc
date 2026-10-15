@@ -37,7 +37,7 @@ A browser app for planning IP address space for Azure Landing Zone network desig
 - **Export IaC** generates Bicep or Terraform that deploys the whole network, across every subscription it uses, in one deployment:
   - a **reusable template**. Every input is a typed parameter or variable, with no names, CIDRs or regions hard-coded, so the same template deploys any plan.
     - Bicep: `alz-network.bicep`, deployed at a management group above the subscriptions (`az deployment mg create`), with modules in `modules/` for resource groups, the Virtual WAN, each resource group's networks, and the peerings and hub connections, which run last. It downloads as `alz-network-bicep.zip`.
-    - Terraform: `main.tf`, using the `azapi` provider (2.x), which deploys to any subscription by resource ID.
+    - Terraform (azurerm 4.x): `main.tf` has an `azurerm` provider alias for each of the plan's subscriptions, and calls two generic modules per subscription: `modules/network` (resource groups, VNets and subnets, Virtual WAN and hubs) and `modules/links` (peerings and hub connections, which wait for the VNets they connect). `main.tf` follows the plan's subscriptions and nothing else; for another subscription, add its provider and two module calls. It downloads as `alz-network-terraform.zip`.
   - a **variables file** for the chosen environment, `alz-network.prd.bicepparam` or `prd.tfvars`. It holds this plan's values:
     - the subscriptions, as short names mapped to IDs (placeholders to replace), and the resource groups to create
     - tags
@@ -48,8 +48,8 @@ A browser app for planning IP address space for Azure Landing Zone network desig
   Copy the variables file for each environment (`dev.tfvars`, ...).
   
   A **Terragrunt** option downloads `alz-network-terragrunt.zip`, which contains:
-  - `root.hcl`: azurerm remote state in Azure Storage, set by environment variables `ARM_SUBSCRIPTION_ID` (the state account's subscription), `TG_STATE_RESOURCE_GROUP`, `TG_STATE_STORAGE_ACCOUNT` and `TG_STATE_CONTAINER`, plus a generated azapi provider
-  - `modules/alz-network/main.tf`: the same reusable template, without the provider block
+  - `root.hcl`: azurerm remote state in Azure Storage, set by environment variables `ARM_SUBSCRIPTION_ID` (the state account's subscription), `TG_STATE_RESOURCE_GROUP`, `TG_STATE_STORAGE_ACCOUNT` and `TG_STATE_CONTAINER`
+  - `modules/alz-network/`: the same Terraform configuration and modules, with its providers
   - `live/<env>/alz-network/terragrunt.hcl`: this plan as `inputs`
   - a README with the deploy steps
   
