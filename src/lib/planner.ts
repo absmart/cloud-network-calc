@@ -21,6 +21,7 @@ import {
   isPrivate,
   presetForName,
 } from './azure';
+import { prefixForHosts, usableAddresses } from './sizing';
 
 export type Topology = 'hub-spoke' | 'vwan';
 
@@ -41,6 +42,8 @@ export interface SubnetSpec {
    * Missing on an automatically placed subnet means any range, main first.
    */
   range?: number;
+  /** Addresses the subnet must have room for, if the user said; the planner warns when it's too small. */
+  hosts?: number;
   /** Put in the hub by the "hub" platform layout; replaced when the region's platform layout changes. */
   platform?: boolean;
 }
@@ -356,6 +359,12 @@ function computeVnet(
       own.push(error(`Duplicate subnet name "${s.name}" in this VNet`));
     if (p > SMALLEST_SUBNET_PREFIX)
       own.push(error(`Azure subnets must be /${SMALLEST_SUBNET_PREFIX} or larger`));
+    if (s.hosts && usableAddresses(p) < s.hosts)
+      own.push(
+        warning(
+          `Needs ${s.hosts} hosts, but a /${p} has ${usableAddresses(p)} usable addresses; a /${prefixForHosts(s.hosts)} fits`,
+        ),
+      );
 
     const preset = presetForName(s.name);
     if (preset) {
