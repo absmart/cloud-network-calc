@@ -82,3 +82,4 @@ Before changing a template, check the samples: `IAC_OUT_DIR=<dir> npm test`, the
 
 - Exact-pinned dependency versions in `package.json`.
 - Commit messages: short imperative sentence describing the user-visible change (e.g. "Hyphenate every component of exported names").
+- `CHANGELOG.md` lists user-visible changes by date, newest first, under Added / Changed / Fixed, with the pull request linked. Add an entry in the same pull request as the change, and say when a change breaks existing exports or saved data.
