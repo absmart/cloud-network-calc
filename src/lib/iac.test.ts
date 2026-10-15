@@ -51,7 +51,12 @@ describe('IaC export', () => {
     expect(m.virtualHubs).toEqual([
       expect.objectContaining({ name: 'hub-prd-eus2-01-vhub', plannerName: 'hub-eus2-vhub', location: 'eastus2', prefix: '10.0.0.0/23' }),
     ]);
-    expect(m.virtualWan).toBe('network-prd-eus2-01-vwan');
+    expect(m.virtualWan).toEqual({
+      name: 'network-prd-eus2-01-vwan',
+      location: 'eastus2',
+      subscription: 'main',
+      resourceGroup: 'network-prd-eus2-01-rg',
+    });
     expect(m.hubConnections[0].name).toBe('identity-prd-eus2-01-conn');
     expect(m.hubConnections).toHaveLength(5);
     expect(m.vnets).toHaveLength(11);
@@ -60,7 +65,8 @@ describe('IaC export', () => {
 
   it('names resources <app>-<environment>-<region>-<int>-<resourcetype>', () => {
     const m = model();
-    expect(m.resourceGroup).toBe('network-prd-eus2-01-rg');
+    expect(m.subscriptions).toEqual(['main']);
+    expect(m.resourceGroups).toEqual([{ name: 'network-prd-eus2-01-rg', subscription: 'main', location: 'eastus2' }]);
     expect(m.vnets.map((v) => v.name)).toEqual([
       'hub-prd-eus2-01-vnet',
       'identity-prd-eus2-01-vnet',
@@ -105,7 +111,7 @@ describe('IaC export', () => {
   it('separates every name component with a single hyphen', () => {
     const names = (naming: NamingOptions) => {
       const m = buildIacModel(defaultPlan(), computePlan(defaultPlan()), naming);
-      return [m.resourceGroup, ...m.vnets.flatMap((v) => [v.name, ...v.subnets.map((s) => s.name)])];
+      return [m.resourceGroups[0].name, ...m.vnets.flatMap((v) => [v.name, ...v.subnets.map((s) => s.name)])];
     };
     for (const name of names(DEFAULT_NAMING).filter((n) => !/^[A-Z]/.test(n))) {
       expect(name).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*-(prd)-(eus2|cus)-\d+-(rg|vnet|snet)$/);
@@ -120,7 +126,7 @@ describe('IaC export', () => {
     const plan = defaultPlan();
     plan.regions[0].spokes.push(SPOKE_TEMPLATES.empty.make('eastus2'), SPOKE_TEMPLATES.empty.make('eastus2'));
     const m = buildIacModel(plan, computePlan(plan), { app: 'Contoso Net', environment: 'DEV', instance: '02' });
-    expect(m.resourceGroup).toBe('contoso-net-dev-eus2-02-rg');
+    expect(m.resourceGroups[0].name).toBe('contoso-net-dev-eus2-02-rg');
     expect(m.vnets[0].name).toBe('hub-dev-eus2-02-vnet');
     expect(m.vnets.filter((v) => v.name.startsWith('spoke-')).map((v) => v.name)).toEqual([
       'spoke-dev-eus2-02-vnet',
@@ -128,7 +134,7 @@ describe('IaC export', () => {
     ]);
     const tfvars = toTfvars(m);
     expect(tfvars).toContain('"hub-dev-eus2-02-vnet/identity-dev-eus2-02-peer" = {');
-    expect(tfvars).toContain('resource_group_name     = "contoso-net-dev-eus2-02-rg"');
+    expect(tfvars).toContain('"main/contoso-net-dev-eus2-02-rg" = {');
   });
 
   it('keeps templates generic: the same template for any plan, values only in the variables file', () => {
@@ -142,19 +148,22 @@ describe('IaC export', () => {
       expect(template.content).not.toMatch(/10\.0\.|eastus2|prd-eus2|eus2-01|GatewaySubnet/);
     }
     // ...every input is a parameter / variable.
-    for (const p of ['tags', 'vnets', 'peerings', 'virtualWan', 'virtualHubs', 'hubConnections']) {
+    for (const p of ['subscriptions', 'resourceGroups', 'tags', 'vnets', 'peerings', 'virtualWan', 'virtualHubs', 'hubConnections']) {
       expect(a[0].content).toMatch(new RegExp(`^param ${p} `, 'm'));
     }
     const tf = files('terraform', defaultPlan())[0].content;
-    for (const v of ['subscription_id', 'resource_group_name', 'resource_group_location', 'tags', 'vnets', 'peerings', 'virtual_wan', 'virtual_hubs', 'hub_connections']) {
+    for (const v of ['subscriptions', 'resource_groups', 'tags', 'vnets', 'peerings', 'virtual_wan', 'virtual_hubs', 'hub_connections']) {
       expect(tf).toContain(`variable "${v}" {`);
     }
   });
 
   it('puts the plan into the variables files', () => {
-    const [, params] = files('bicep', defaultPlan());
+    const params = files('bicep', defaultPlan()).at(-1)!;
     expect(params.content).toContain("using './alz-network.bicep'");
-    expect(params.content).toContain("name: 'hub-prd-eus2-01-vnet'");
+    expect(params.content).toContain("param subscriptions = {\n  main: '00000000-0000-0000-0000-000000000000' // replace");
+    expect(params.content).toContain(
+      "  'hub-prd-eus2-01-vnet': {\n    subscription: 'main'\n    resourceGroup: 'network-prd-eus2-01-rg'",
+    );
     expect(params.content).toContain("delegation: 'Microsoft.Network/dnsResolvers'");
     expect(params.content).toContain("remoteVnet: 'identity-prd-eus2-01-vnet'");
     expect(params.content).not.toContain('param virtualWan');
@@ -165,8 +174,8 @@ describe('IaC export', () => {
     expect(tfvars.content).toContain('remote_vnet             = "identity-prd-eus2-01-vnet"');
     expect(tfvars.content).not.toContain('virtual_wan');
 
-    const [, wanParams] = files('bicep', vwanPlan());
-    expect(wanParams.content).toContain("param virtualWan = {\n  name: 'network-prd-eus2-01-vwan'");
+    const wanParams = files('bicep', vwanPlan()).at(-1)!;
+    expect(wanParams.content).toContain("param virtualWan = {\n  name: 'network-prd-eus2-01-vwan'\n  location: 'eastus2'\n  subscription: 'main'");
     expect(wanParams.content).toContain("virtualHub: 'hub-prd-eus2-01-vhub'");
     const [, wanVars] = files('terraform', vwanPlan());
     expect(wanVars.content).toContain('virtual_hub = "hub-prd-eus2-01-vhub"');
@@ -179,15 +188,22 @@ describe('IaC export', () => {
     expect(m.vnets.find((v) => v.name === 'corp-prd-eus2-001-vnet')!.prefixes).toEqual(['10.0.8.0/22', '10.0.200.0/24']);
     expect(m.omitted).toEqual(['address range 3 of VNet corp-eus2-001-vnet']);
 
-    const [, params] = files('bicep', plan);
+    const params = files('bicep', plan).at(-1)!;
     expect(params.content).toContain("    addressPrefixes: [\n      '10.0.8.0/22'\n      '10.0.200.0/24'\n    ]");
     const [, tfvars] = files('terraform', plan);
-    expect(tfvars.content).toMatch(/address_space = \["10\.0\.8\.0\/22", "10\.0\.200\.0\/24"\]/);
+    expect(tfvars.content).toMatch(/address_space +\= \["10\.0\.8\.0\/22", "10\.0\.200\.0\/24"\]/);
   });
 
   it('names the variables file after the environment', () => {
     const naming = { app: 'network', environment: 'dev', instance: '01' };
-    expect(files('bicep', defaultPlan(), naming).map((f) => f.name)).toEqual(['alz-network.bicep', 'alz-network.dev.bicepparam']);
+    expect(files('bicep', defaultPlan(), naming).map((f) => f.name)).toEqual([
+      'alz-network.bicep',
+      'modules/resource-group.bicep',
+      'modules/virtual-wan.bicep',
+      'modules/network.bicep',
+      'modules/links.bicep',
+      'alz-network.dev.bicepparam',
+    ]);
     expect(files('terraform', defaultPlan(), naming).map((f) => f.name)).toEqual(['main.tf', 'dev.tfvars']);
     expect(files('terraform', defaultPlan(), naming)[1].content).toContain('terraform apply -var-file=dev.tfvars');
   });
@@ -218,21 +234,17 @@ describe('IaC export', () => {
     const [root, module, live] = tg.map((f) => f.content);
     expect(root).toContain('backend = "azurerm"');
     expect(root).toContain('generate "provider"');
-    // The module is the Terraform template without the provider and subscription variable.
-    expect(module).not.toContain('provider "azurerm"');
-    expect(module).not.toContain('variable "subscription_id"');
+    // The module is the Terraform template without the provider block.
+    expect(module).not.toContain('provider "azapi"');
     expect(module).toContain('variable "vnets" {');
     expect(module.replace(/^#.*\n/gm, '')).toBe(
-      files('terraform', defaultPlan())[0]
-        .content.replace(/^#.*\n/gm, '')
-        .replace(/\nprovider "azurerm" \{[^}]*\{\}[^}]*\}\n/, '')
-        .replace(/\nvariable "subscription_id" \{[^}]*\}\n/, ''),
+      files('terraform', defaultPlan())[0].content.replace(/^#.*\n/gm, '').replace(/\nprovider "azapi" \{\}\n/, ''),
     );
     expect(live).toContain('path = find_in_parent_folders("root.hcl")');
     expect(live).toContain('source = "${get_parent_terragrunt_dir("root")}/modules//alz-network"');
-    expect(live).toContain('inputs = {\n  resource_group_name     = "network-dev-eus2-01-rg"');
+    expect(live).toContain('inputs = {\n  subscriptions = {\n    "main" = "00000000-0000-0000-0000-000000000000" # replace');
+    expect(live).toContain('    "main/network-dev-eus2-01-rg" = {');
     expect(live).toContain('    "hub-dev-eus2-01-vnet" = {');
-    expect(live).not.toContain('subscription_id');
   });
 
   it('zips files with their folders', () => {
@@ -252,6 +264,8 @@ describe('IaC export', () => {
     for (const [name, plan] of [
       ['hub-spoke', defaultPlan()],
       ['vwan', vwanPlan()],
+      ['alz-hub-spoke', { ...defaultPlan(), placement: 'alz' }],
+      ['alz-vwan', { ...vwanPlan(), placement: 'alz' }],
     ] as const) {
       for (const format of ['bicep', 'terraform', 'terragrunt'] as const) {
         const dir = join(process.env.IAC_OUT_DIR!, name, format);

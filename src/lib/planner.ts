@@ -84,6 +84,13 @@ export interface VnetSpec {
   subnets: SubnetSpec[];
   /** Free-space divisions made in the visual editor. */
   splits?: Split[];
+  /**
+   * Where the IaC export deploys it: a subscription key (a logical name the
+   * variables file maps to an ID, or the ID itself) and a resource group.
+   * Missing means the plan's placement layout decides (see placement.ts).
+   */
+  subscription?: string;
+  resourceGroup?: string;
 }
 
 export interface RegionSpec {
@@ -111,7 +118,17 @@ export interface PlanSpec {
   regions: RegionSpec[];
   /** Kept clear of every VNet. Regions are placed around them, but a pinned region may enclose one. */
   excluded?: ExcludedRange[];
+  /** How the export spreads networks over subscriptions and resource groups; missing means 'single'. */
+  placement?: PlacementLayout;
 }
+
+/**
+ * Subscription layouts for the export: everything in one subscription, the
+ * Azure Landing Zones platform subscriptions (connectivity, identity,
+ * management, security) plus one per landing zone, or one platform
+ * subscription plus one per landing zone.
+ */
+export type PlacementLayout = 'single' | 'alz' | 'alz-platform';
 
 export interface Issue {
   level: 'error' | 'warning';

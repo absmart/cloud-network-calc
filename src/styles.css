@@ -1181,3 +1181,34 @@ td {
 .overview .headroom {
   margin: 0 0 6px;
 }
+
+/* Placement in subscriptions and resource groups */
+
+.dialog .placement {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.dialog .placement summary {
+  margin-top: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.dialog .placement .table-scroll {
+  max-height: 220px;
+  overflow: auto;
+  margin-top: 6px;
+}
+
+.dialog .placement table input {
+  width: 100%;
+  min-width: 160px;
+}
+
+.dialog .placement button.link {
+  margin-left: 6px;
+}

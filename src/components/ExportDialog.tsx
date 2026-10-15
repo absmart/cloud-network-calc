@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { type IacFormat, TERRAGRUNT_ROOT, buildIacModel, generateIacFiles } from '../lib/iac';
+import { type IacFormat, buildIacModel, generateIacFiles, zipRoot } from '../lib/iac';
+import { PlacementPanel } from './PlacementPanel';
 import { DEFAULT_NAMING, type NamingOptions } from '../lib/naming';
 import { STORAGE_KEYS, loadNaming, writeJson } from '../lib/storage';
 import { type PlanResult, type PlanSpec, countIssues } from '../lib/planner';
@@ -11,7 +12,13 @@ const FORMAT_LABEL: Record<IacFormat, string> = { bicep: 'Bicep', terraform: 'Te
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
 /** Shows the plan as Bicep, Terraform or Terragrunt, ready to copy or download. */
-export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClose: () => void }) {
+export function ExportDialog(props: {
+  plan: PlanSpec;
+  result: PlanResult;
+  /** Saves placement choices (subscriptions and resource groups) back into the plan. */
+  onPlanChange: (plan: PlanSpec) => void;
+  onClose: () => void;
+}) {
   const [format, setFormat] = useState<IacFormat>('bicep');
   const [naming, setNaming] = useState<NamingOptions>(loadNaming);
   const [copied, setCopied] = useState(false);
@@ -21,15 +28,14 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
     [format, props.plan, props.result, naming],
   );
   const file = files[fileIndex] ?? files[0];
-  // Terragrunt's files live in folders, so they download together as a zip.
+  // Bicep's modules and Terragrunt's stack live in folders, so they download together as a zip.
   const inFolders = files.some((f) => f.name.includes('/'));
-  const zip = () => createZip(files.map((f) => ({ name: `${TERRAGRUNT_ROOT}/${f.name}`, content: f.content })));
-  const example = useMemo(() => {
-    const m = buildIacModel(props.plan, props.result, naming);
-    return [m.vnets[0]?.name, m.vnets[0]?.subnets.find((s) => s.name.endsWith('-snet'))?.name, m.resourceGroup]
-      .filter(Boolean)
-      .join(', ');
-  }, [props.plan, props.result, naming]);
+  const root = zipRoot(format);
+  const zip = () => createZip(files.map((f) => ({ name: `${root}/${f.name}`, content: f.content })));
+  const model = useMemo(() => buildIacModel(props.plan, props.result, naming), [props.plan, props.result, naming]);
+  const example = [model.vnets[0]?.name, model.vnets[0]?.subnets.find((s) => s.name.endsWith('-snet'))?.name, model.resourceGroups[0]?.name]
+    .filter(Boolean)
+    .join(', ');
 
   useEffect(() => {
     writeJson(STORAGE_KEYS.naming, naming);
@@ -81,7 +87,10 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
           {props.plan.regions.some((r) => r.topology === 'vwan') ? ', plus the Virtual WAN and its hubs' : ''}.
           Hub &amp; spoke hubs are peered with their spokes and with each other. The template is generic, with every input a
           parameter or variable; this plan's values go in the variables file, so the same template can be reused for other plans
-          and environments.
+          and environments. One deployment covers every subscription:{' '}
+          {format === 'bicep'
+            ? 'Bicep deploys at a management group above them, with modules per subscription and resource group, and downloads as a .zip.'
+            : 'Terraform uses the azapi provider, which reaches any subscription by resource ID.'}
           {format === 'terragrunt' &&
             ' Terragrunt adds a root.hcl for remote state and the provider, with this plan as the inputs of live/<env>/alz-network; it downloads as a .zip that keeps the folders.'}
         </p>
@@ -106,6 +115,13 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
         <p className="muted">
           For example: <code>{example}</code>. Azure-required subnet names such as GatewaySubnet are kept.
         </p>
+        <PlacementPanel
+          plan={props.plan}
+          naming={naming}
+          subscriptionCount={model.subscriptions.length}
+          resourceGroupCount={model.resourceGroups.length}
+          onChange={props.onPlanChange}
+        />
         {errors > 0 && (
           <ul className="issues">
             <li className="error">
@@ -133,8 +149,8 @@ export function ExportDialog(props: { plan: PlanSpec; result: PlanResult; onClos
           <button onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
           <button onClick={() => save(baseName(file.name), file.content)}>Download {baseName(file.name)}</button>
           {inFolders ? (
-            <button className="primary" onClick={() => save(`${TERRAGRUNT_ROOT}.zip`, zip(), 'application/zip')}>
-              Download {TERRAGRUNT_ROOT}.zip ({files.length} files)
+            <button className="primary" onClick={() => save(`${root}.zip`, zip(), 'application/zip')}>
+              Download {root}.zip ({files.length} files)
             </button>
           ) : (
             <button className="primary" onClick={() => files.forEach((f) => save(f.name, f.content))}>

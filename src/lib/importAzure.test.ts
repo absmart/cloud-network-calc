@@ -96,6 +96,17 @@ describe('importAzureNetwork', () => {
     ]);
   });
 
+  it('keeps where each network is deployed, so an export targets the same subscription and resource group', () => {
+    const { plan } = importAzureNetwork(JSON.stringify(graphOutput));
+    const eus2 = plan.regions[0];
+    expect([eus2.hub, ...eus2.spokes].map((v) => [v.subscription, v.resourceGroup])).toEqual([
+      ['0000', 'rg-net'],
+      ['0000', 'rg-net'],
+      ['0000', 'rg-net'],
+    ]);
+    expect(plan.regions[1].hub).toMatchObject({ name: 'vhub-weu', subscription: '0000', resourceGroup: 'rg-net' });
+  });
+
   it('imports spokes as landing zones, so changing the platform layout keeps them', () => {
     const { plan } = importAzureNetwork(JSON.stringify(graphOutput));
     const region = plan.regions[0];

@@ -34,10 +34,12 @@ A browser app for planning IP address space for Azure Landing Zone network desig
   - overlaps and overflow
 - **Table view** with first and last addresses, plus a "Copy as CSV" button.
 - **Undo and redo** (↶ ↷, Ctrl+Z and Ctrl+Y or Ctrl+Shift+Z) for every plan edit, including platform layout switches and Auto-pack. Edits within a second of each other, like typing a name, are one step. Opening a design, an import or a share link starts a fresh history.
-- **Export IaC** generates two files for Bicep or for Terraform (azurerm 4.x), ready to copy or download:
-  - a **reusable template**, `alz-network.bicep` or `main.tf`. Every input is a typed parameter or variable, with no names, CIDRs or regions hard-coded, so the same template deploys any plan.
+- **Export IaC** generates Bicep or Terraform that deploys the whole network, across every subscription it uses, in one deployment:
+  - a **reusable template**. Every input is a typed parameter or variable, with no names, CIDRs or regions hard-coded, so the same template deploys any plan.
+    - Bicep: `alz-network.bicep`, deployed at a management group above the subscriptions (`az deployment mg create`), with modules in `modules/` for resource groups, the Virtual WAN, each resource group's networks, and the peerings and hub connections, which run last. It downloads as `alz-network-bicep.zip`.
+    - Terraform: `main.tf`, using the `azapi` provider (2.x), which deploys to any subscription by resource ID.
   - a **variables file** for the chosen environment, `alz-network.prd.bicepparam` or `prd.tfvars`. It holds this plan's values:
-    - the resource group, location and subscription (Terraform)
+    - the subscriptions, as short names mapped to IDs (placeholders to replace), and the resource groups to create
     - tags
     - VNets and subnets
     - peerings, with their forwarded-traffic and gateway-transit options
@@ -46,7 +48,7 @@ A browser app for planning IP address space for Azure Landing Zone network desig
   Copy the variables file for each environment (`dev.tfvars`, ...).
   
   A **Terragrunt** option downloads `alz-network-terragrunt.zip`, which contains:
-  - `root.hcl`: azurerm remote state in Azure Storage, set by environment variables `TG_STATE_RESOURCE_GROUP`, `TG_STATE_STORAGE_ACCOUNT` and `TG_STATE_CONTAINER`, plus a generated provider that reads `ARM_SUBSCRIPTION_ID`
+  - `root.hcl`: azurerm remote state in Azure Storage, set by environment variables `ARM_SUBSCRIPTION_ID` (the state account's subscription), `TG_STATE_RESOURCE_GROUP`, `TG_STATE_STORAGE_ACCOUNT` and `TG_STATE_CONTAINER`, plus a generated azapi provider
   - `modules/alz-network/main.tf`: the same reusable template, without the provider block
   - `live/<env>/alz-network/terragrunt.hcl`: this plan as `inputs`
   - a README with the deploy steps
@@ -58,7 +60,14 @@ A browser app for planning IP address space for Azure Landing Zone network desig
   
   Exported names follow `<app>-<environment>-<region>-<int>-<resourcetype>`, for example `hub-prd-eus2-01-vnet`, `corp-prd-eus2-001-vnet` or `identity-prd-eus2-01-snet`. The `<app>` comes from each VNet or subnet's planner name, and the `<region>` codes are defined in `src/lib/naming.ts`. Environment, instance and the shared app (used for the resource group and vWAN) are editable in the dialog. Azure-reserved subnet names such as GatewaySubnet are kept, and the planner itself keeps its readable names.
   
-  Everything deploys into one resource group (default `network-prd-eus2-01-rg`). Anything the plan couldn't allocate is listed at the top of the file. To write sample files for `az bicep build` / `terraform validate`, run `IAC_OUT_DIR=<dir> npm test`.
+  **Subscriptions and resource groups.** Pick a layout in the dialog, then optionally set any network's subscription or resource group by hand; the choice is saved with the plan.
+  - **One subscription** (default): everything in one resource group (`network-prd-eus2-01-rg`).
+  - **Azure Landing Zones**: the ALZ platform subscriptions plus one subscription per landing zone, as subscription vending creates them. Hubs and the Virtual WAN go in `connectivity`; identity, management and security spokes in their own subscriptions; each landing zone in its own (`corp-eus2-001`). Resource groups are per network and region, such as `connectivity-prd-eus2-01-rg` or `corp-prd-eus2-001-rg`.
+  - **ALZ, one platform subscription**: the same, but hubs and platform networks share a single `platform` subscription.
+
+  A subscription is a short name that the variables file maps to an ID, or an ID itself. Imported networks keep the subscription and resource group they were found in.
+
+  Anything the plan couldn't allocate is listed at the top of the file. To write sample files for `az bicep build` / `terraform validate`, run `IAC_OUT_DIR=<dir> npm test`.
 
 The plan you're working on is kept automatically in your browser's local storage.
 

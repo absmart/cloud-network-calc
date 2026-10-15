@@ -359,7 +359,7 @@ export default function App() {
           </>
         )}
       </main>
-      {exporting && <ExportDialog plan={plan} result={result} onClose={() => setExporting(false)} />}
+      {exporting && <ExportDialog plan={plan} result={result} onPlanChange={setPlan} onClose={() => setExporting(false)} />}
       {incoming && (
         <SharedLinkDialog
           shared={incoming.shared}
