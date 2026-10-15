@@ -6,6 +6,7 @@ import { addRange, applyRangeView, rangeView, removeRange } from '../lib/layout'
 import type { RangeSpec, SubnetSpec, VnetResult, VnetRole, VnetSpec } from '../lib/planner';
 import { AllocationBar, CidrBadge, Issues, PinInput, PrefixSelect } from './common';
 import { VisualSubnetEditor } from './VisualSubnetEditor';
+import { prefixForHosts, prefixHolding, usableAddresses } from '../lib/sizing';
 
 const KIND_LABEL = { hub: 'Hub VNet', 'virtual-hub': 'Virtual WAN hub', spoke: 'Spoke' } as const;
 
@@ -29,6 +30,10 @@ export function VnetCard(props: {
   const [mode, setMode] = useState<'visual' | 'list'>('visual');
   const isVirtualHub = result.kind === 'virtual-hub';
   const vnetPrefix = result.cidr?.prefix ?? spec.prefix;
+
+  // The smallest VNet that holds its subnets as sized, offered when the VNet is
+  // smaller (single-range VNets only; spokes larger than their subnets are room to grow).
+  const fit = prefixHolding(spec.subnets.map((s) => s.prefix));
 
   const updateRange = (index: number, patch: Partial<RangeSpec>) =>
     onChange({ ...spec, ranges: (spec.ranges ?? []).map((r, i) => (i === index ? { ...r, ...patch } : r)) });
@@ -148,6 +153,7 @@ export function VnetCard(props: {
               <thead>
                 <tr>
                   <th>Subnet</th>
+                  <th title="Addresses the subnet needs; sets the size, counting Azure's 5 reserved addresses">Hosts</th>
                   <th>Size</th>
                   <th>Pin</th>
                   <th>CIDR</th>
@@ -169,6 +175,22 @@ export function VnetCard(props: {
                           onChange={(e) => updateSubnet(i, { name: e.target.value })}
                         />
                         <Issues issues={r.issues} />
+                      </td>
+                      <td>
+                        <input
+                          className="hosts"
+                          type="number"
+                          min={0}
+                          aria-label={`Hosts needed in ${s.name}`}
+                          placeholder={String(usableAddresses(s.prefix))}
+                          value={s.hosts ?? ''}
+                          onChange={(e) => {
+                            const hosts = Math.max(0, Math.floor(Number(e.target.value))) || undefined;
+                            // A pinned subnet keeps its size; the planner warns if it's too small.
+                            const resize = hosts && !s.fixed?.trim() ? { prefix: prefixForHosts(hosts), offset: undefined } : {};
+                            updateSubnet(i, { hosts, ...resize });
+                          }}
+                        />
                       </td>
                       <td>
                         <PrefixSelect
@@ -235,6 +257,16 @@ export function VnetCard(props: {
             {result.cidr && (
               <span className="muted">
                 {result.ranges.reduce((n, r) => n + (r ? blockSize(r.prefix) : 0), 0).toLocaleString()} addresses in VNet
+              </span>
+            )}
+            {fit !== null && fit < spec.prefix && !spec.ranges?.length && (
+              <span className="muted fit-hint">
+                The subnets need a /{fit}; the VNet is too small for them.
+                {!spec.fixed?.trim() && (
+                  <button className="link" onClick={() => onChange({ ...spec, prefix: fit })}>
+                    Make it a /{fit}
+                  </button>
+                )}
               </span>
             )}
           </div>
