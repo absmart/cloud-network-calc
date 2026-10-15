@@ -58,7 +58,8 @@ export interface FoundVnet {
   /** The main address range, and any others. */
   cidr: Cidr;
   extra: Cidr[];
-  /** As written in the resource id. */
+  /** Subscription ID and resource group, as written in the resource id. */
+  subscription: string;
   resourceGroup: string;
   subnets: { name: string; cidr: Cidr }[];
   /** Lower-cased resource ids of peered VNets. */
@@ -68,6 +69,7 @@ export interface FoundVnet {
 export interface FoundHub {
   id: string;
   name: string;
+  subscription: string;
   resourceGroup: string;
   location: string;
   cidr: Cidr;
@@ -242,6 +244,7 @@ function readVnet(resource: Json, notes: ImportNote[]): FoundVnet | null {
     location,
     cidr: prefixes[0],
     extra: prefixes.slice(1),
+    subscription: subscriptionOf(resource),
     resourceGroup: resourceGroupOf(resource),
     subnets: subnets.filter((s) => !outside.includes(s)),
     peers,
@@ -256,13 +259,20 @@ function readHub(resource: Json, notes: ImportNote[]): FoundHub | null {
     notes.push({ level: 'warning', message: `Virtual hub ${name} has no location or address prefix and was left out` });
     return null;
   }
-  return { id: text(field(resource, 'id')).toLowerCase() || newId(), name, resourceGroup: resourceGroupOf(resource), location, cidr };
+  return { id: text(field(resource, 'id')).toLowerCase() || newId(), name, subscription: subscriptionOf(resource), resourceGroup: resourceGroupOf(resource), location, cidr };
 }
 
+const subscriptionOf = (resource: Json) => text(field(resource, 'id')).match(/^\/subscriptions\/([^/]+)/i)?.[1] ?? '';
 const resourceGroupOf = (resource: Json) => text(field(resource, 'id')).match(/\/resourcegroups\/([^/]+)/i)?.[1] ?? '';
 
 /** Subnets that only a connectivity hub has. */
 const HUB_SUBNETS = new Set(['gatewaysubnet', 'azurefirewallsubnet', 'azurefirewallmanagementsubnet', 'routeserversubnet']);
+
+/** A network's subscription and resource group as placement overrides, where the export found them. */
+const placementOf = (n: { subscription: string; resourceGroup: string }) => ({
+  ...(n.subscription && { subscription: n.subscription }),
+  ...(n.resourceGroup && { resourceGroup: n.resourceGroup }),
+});
 
 function toVnetSpec(v: FoundVnet, landingZone: boolean): VnetSpec {
   const ranges = [v.cidr, ...v.extra];
@@ -274,6 +284,8 @@ function toVnetSpec(v: FoundVnet, landingZone: boolean): VnetSpec {
     prefix: v.cidr.prefix,
     fixed: formatCidr(v.cidr),
     ...(v.extra.length > 0 && { ranges: v.extra.map((c) => ({ prefix: c.prefix, fixed: formatCidr(c) })) }),
+    // Deployed where it is now, so an export of the imported design targets the same place.
+    ...placementOf(v),
     subnets: v.subnets.map((s): SubnetSpec => {
       const k = ranges.findIndex((c) => contains(c, s.cidr));
       return { id: newId(), name: s.name, prefix: s.cidr.prefix, offset: s.cidr.base - ranges[k].base, ...(k > 0 && { range: k }) };
@@ -326,7 +338,7 @@ function buildRegion(location: string, vnets: FoundVnet[], hubs: FoundHub[], not
       location,
       prefix: 0,
       topology: 'vwan',
-      hub: { id: newId(), name: vhub.name, prefix: vhub.cidr.prefix, fixed: formatCidr(vhub.cidr), subnets: [] },
+      hub: { id: newId(), name: vhub.name, prefix: vhub.cidr.prefix, fixed: formatCidr(vhub.cidr), ...placementOf(vhub), subnets: [] },
       spokes: vnets.map((v) => toVnetSpec(v, true)),
     };
   }

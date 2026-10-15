@@ -4,6 +4,7 @@
 import type { IacModel } from './iac';
 import { type FoundVnet, type ImportNote, readAzureNetwork } from './importAzure';
 import { type Cidr, formatCidr, overlaps, parseCidr } from './ipv4';
+import { isSubscriptionId } from './placement';
 
 export type DiffStatus = 'different' | 'only-in-azure' | 'not-deployed' | 'same';
 
@@ -35,6 +36,9 @@ interface Side {
   names: string[];
   kind: 'vnet' | 'virtual-hub';
   location: string;
+  /** Planned: a subscription key or ID; deployed: the subscription ID. */
+  subscription: string;
+  resourceGroup: string;
   prefixes: string[];
   /** Subnet → its CIDR, with the names each can be matched by. */
   subnets: { name: string; names: string[]; prefix: string }[];
@@ -66,6 +70,8 @@ function plannedSides(model: IacModel): Side[] {
         names: lower([v.name, v.plannerName]),
         kind: 'vnet',
         location: v.location,
+        subscription: v.subscription,
+        resourceGroup: v.resourceGroup,
         prefixes: v.prefixes,
         subnets: v.subnets.map((s) => ({ name: s.plannerName, names: lower([s.name, s.plannerName]), prefix: s.prefix })),
       }),
@@ -77,6 +83,8 @@ function plannedSides(model: IacModel): Side[] {
         names: lower([h.name, h.plannerName]),
         kind: 'virtual-hub',
         location: h.location,
+        subscription: h.subscription,
+        resourceGroup: h.resourceGroup,
         prefixes: [h.prefix],
         subnets: [],
       }),
@@ -87,6 +95,11 @@ function plannedSides(model: IacModel): Side[] {
 function vnetDifferences(planned: Side, deployed: Side): string[] {
   const out: string[] = [];
   if (planned.location !== deployed.location) out.push(`Location: planned ${planned.location}, Azure has ${deployed.location}`);
+  // A subscription key (like "connectivity") can't be checked; a subscription ID can.
+  if (isSubscriptionId(planned.subscription) && deployed.subscription && planned.subscription.toLowerCase() !== deployed.subscription.toLowerCase())
+    out.push(`Subscription: planned ${planned.subscription}, Azure has ${deployed.subscription}`);
+  if (deployed.resourceGroup && planned.resourceGroup.toLowerCase() !== deployed.resourceGroup.toLowerCase())
+    out.push(`Resource group: planned ${planned.resourceGroup}, Azure has ${deployed.resourceGroup}`);
   for (const p of planned.prefixes)
     if (!deployed.prefixes.includes(p)) out.push(`Address range ${p} isn't in Azure`);
   for (const p of deployed.prefixes)
@@ -117,8 +130,9 @@ function vnetDifferences(planned: Side, deployed: Side): string[] {
  */
 export function compareWithAzure(model: IacModel, input: string): Comparison {
   const { vnets, hubs, notes } = readAzureNetwork(input);
-  const deployedVnet = (v: FoundVnet): Side & { id: string; resourceGroup: string } => ({
+  const deployedVnet = (v: FoundVnet): Side & { id: string } => ({
     id: v.id,
+    subscription: v.subscription,
     resourceGroup: v.resourceGroup,
     name: v.name,
     names: lower([v.name]),
@@ -131,6 +145,7 @@ export function compareWithAzure(model: IacModel, input: string): Comparison {
     ...[...vnets.values()].map(deployedVnet),
     ...[...hubs.values()].map((h) => ({
       id: h.id,
+      subscription: h.subscription,
       resourceGroup: h.resourceGroup,
       name: h.name,
       names: lower([h.name]),

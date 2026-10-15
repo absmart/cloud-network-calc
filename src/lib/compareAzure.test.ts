@@ -13,7 +13,7 @@ type Model = ReturnType<typeof modelOf>;
 function deployedAs(model: Model) {
   return [
     ...model.vnets.map((v) => ({
-      id: `/subscriptions/0000/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/${v.name}`,
+      id: `/subscriptions/0000/resourceGroups/${v.resourceGroup}/providers/Microsoft.Network/virtualNetworks/${v.name}`,
       name: v.name,
       type: 'microsoft.network/virtualnetworks',
       location: v.location,
@@ -23,7 +23,7 @@ function deployedAs(model: Model) {
       },
     })),
     ...model.virtualHubs.map((h) => ({
-      id: `/subscriptions/0000/resourceGroups/rg-net/providers/Microsoft.Network/virtualHubs/${h.name}`,
+      id: `/subscriptions/0000/resourceGroups/${h.resourceGroup}/providers/Microsoft.Network/virtualHubs/${h.name}`,
       name: h.name,
       type: 'microsoft.network/virtualhubs',
       location: h.location,
@@ -41,7 +41,7 @@ describe('compareWithAzure', () => {
       status: 'same',
       matchedBy: 'name',
       planned: { name: 'hub-eus2-vnet', exportedName: 'hub-prd-eus2-01-vnet' },
-      deployed: { name: 'hub-prd-eus2-01-vnet', resourceGroup: 'rg-net' },
+      deployed: { name: 'hub-prd-eus2-01-vnet', resourceGroup: 'network-prd-eus2-01-rg' },
     });
   });
 
@@ -79,6 +79,22 @@ describe('compareWithAzure', () => {
     ]);
     expect(networks.find((n) => n.status === 'not-deployed')!.planned!.exportedName).toBe(dropped);
     expect(networks.find((n) => n.deployed?.name === 'identity-renamed')).toMatchObject({ status: 'same', matchedBy: 'address space' });
+  });
+
+  it('reports a different resource group, and a different subscription when the plan names one by ID', () => {
+    const plan = { ...defaultPlan(), placement: 'alz' as const };
+    const id = '11111111-2222-3333-4444-555555555555';
+    plan.regions[0].spokes[3].subscription = id;
+    const model = modelOf(plan);
+    const rows = deployedAs(model);
+    // Deployed in another subscription, and the identity spoke in another resource group.
+    rows[4].id = rows[4].id.replace('/subscriptions/0000/', '/subscriptions/99999999-0000-0000-0000-000000000000/');
+    rows[1].id = rows[1].id.replace('identity-prd-eus2-01-rg', 'rg-identity-legacy');
+    const { networks } = compareWithAzure(model, JSON.stringify(rows));
+    expect(networks.filter((n) => n.status === 'different').map((n) => [n.planned!.name, n.differences])).toEqual([
+      ['identity-eus2-vnet', ['Resource group: planned identity-prd-eus2-01-rg, Azure has rg-identity-legacy']],
+      ['corp-eus2-001-vnet', [`Subscription: planned ${id}, Azure has 99999999-0000-0000-0000-000000000000`]],
+    ]);
   });
 
   it('compares Virtual WAN hubs and notes what the plan leaves out', () => {
