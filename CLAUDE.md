@@ -26,8 +26,9 @@ To produce real IaC samples for checking with `az bicep build` or `terraform val
 
 The app is hosted on Azure Static Web Apps (`swa-cloud-network-calc` in resource group `rg-cloud-network-calc`, https://ambitious-sea-0d5e2730f.5.azurestaticapps.net). [.github/workflows/deploy.yml](.github/workflows/deploy.yml) runs the tests, builds and uploads `dist/`, using the repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`. A failing test stops the deploy. The workflow can also be run by hand from the Actions tab.
 
-- Work goes on a branch and into `main` through a pull request. Each PR deploys to its own preview environment, and the action comments its URL on the PR. Every push to the PR updates it, and closing or merging the PR removes it. The Free plan allows 3 preview environments at once, and their URLs are public.
-- A push to `main` (normally merging a PR) deploys to production.
+- Work goes on a branch and into `main` through a pull request. The **Tests and build** job (`npm test`, then `npm run build`, which type-checks) is the gate; branch protection on `main` requires it by that name. Each PR then deploys to its own preview environment, and the action comments its URL on the PR. Every push to the PR updates it, and closing or merging the PR removes it. The Free plan allows 3 preview environments at once, and their URLs are public.
+- **Auto-merge.** When the check and the preview deploy pass on a PR the repository owner opened from a branch of this repo, the **Merge into main** job rebase-merges it, deletes the branch and starts the production deploy. Draft PRs and PRs labelled `hold` are left alone; marking a draft ready for review runs it again. A merge made with the workflow's `GITHUB_TOKEN` doesn't trigger other workflow runs, which is why that job dispatches the production deploy and removes the preview itself.
+- A push to `main` (or the dispatched run) deploys to production, after running the tests and build again.
 
 To deploy by hand from a machine with a logged-in Azure CLI (for example, to deploy something that isn't on `main`):
 
