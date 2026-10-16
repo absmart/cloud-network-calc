@@ -1,8 +1,12 @@
+import { cloudOf } from '../lib/cloud';
 import type { NamingOptions } from '../lib/naming';
-import { PLACEMENT_LAYOUTS, suggestedPlacement } from '../lib/placement';
+import { placementLayouts, suggestedPlacement } from '../lib/placement';
 import type { PlacementLayout, PlanSpec, VnetSpec } from '../lib/planner';
 
-/** Which subscription and resource group each network deploys into: a layout, plus per-network overrides. */
+/**
+ * Which subscription and resource group (Azure) or account (AWS) each network
+ * deploys into: a layout, plus per-network overrides.
+ */
 export function PlacementPanel(props: {
   plan: PlanSpec;
   naming: NamingOptions;
@@ -11,7 +15,12 @@ export function PlacementPanel(props: {
   onChange: (plan: PlanSpec) => void;
 }) {
   const { plan, naming, onChange } = props;
-  const layout = plan.placement ?? 'single';
+  const cloud = cloudOf(plan);
+  const aws = cloud === 'aws';
+  const layouts = placementLayouts(cloud);
+  // AWS offers no 'alz-platform'; it works as 'alz'.
+  const layout: PlacementLayout = aws && plan.placement === 'alz-platform' ? 'alz' : (plan.placement ?? 'single');
+  const unit = aws ? 'account' : 'subscription';
   const primaryLocation = plan.regions[0]?.location ?? 'eastus2';
   const overrides = plan.regions.reduce(
     (n, r) => n + [r.hub, ...r.spokes].filter((v) => v.subscription?.trim() || v.resourceGroup?.trim()).length,
@@ -44,27 +53,31 @@ export function PlacementPanel(props: {
     <div className="placement">
       <div className="row">
         <label>
-          Subscriptions
+          {aws ? 'Accounts' : 'Subscriptions'}
           <select value={layout} onChange={(e) => onChange({ ...plan, placement: e.target.value as PlacementLayout })}>
-            {(Object.keys(PLACEMENT_LAYOUTS) as PlacementLayout[]).map((l) => (
+            {(Object.keys(layouts) as PlacementLayout[]).map((l) => (
               <option key={l} value={l}>
-                {PLACEMENT_LAYOUTS[l].label}
+                {layouts[l]!.label}
               </option>
             ))}
           </select>
         </label>
         <span className="muted">
-          {props.subscriptionCount} subscription{props.subscriptionCount === 1 ? '' : 's'} · {props.resourceGroupCount} resource group
-          {props.resourceGroupCount === 1 ? '' : 's'}
+          {props.subscriptionCount} {unit}
+          {props.subscriptionCount === 1 ? '' : 's'}
+          {!aws && ` · ${props.resourceGroupCount} resource group${props.resourceGroupCount === 1 ? '' : 's'}`}
           {overrides > 0 && ` · ${overrides} set by hand`}
         </span>
       </div>
-      <p className="muted">{PLACEMENT_LAYOUTS[layout].description}</p>
+      <p className="muted">{layouts[layout]?.description}</p>
       <details>
-        <summary>Subscription and resource group per network</summary>
+        <summary>{aws ? 'Account per network' : 'Subscription and resource group per network'}</summary>
         <p className="muted">
-          Leave a field empty to follow the layout (shown greyed). A subscription is a short name the variables file maps to an ID,
-          or a subscription ID itself. The Virtual WAN goes with the first virtual hub.
+          Leave a field empty to follow the layout (shown greyed). {aws ? 'An account' : 'A subscription'} is a short name the
+          variables file maps to an ID, or {aws ? 'a 12-digit account ID' : 'a subscription ID'} itself.{' '}
+          {aws
+            ? "Each region's Transit Gateway goes with its inspection VPC."
+            : 'The Virtual WAN goes with the first virtual hub.'}
           {overrides > 0 && (
             <button className="link" onClick={clearOverrides}>
               Clear the {overrides} set by hand
@@ -77,35 +90,37 @@ export function PlacementPanel(props: {
               <tr>
                 <th>Region</th>
                 <th>Network</th>
-                <th>Subscription</th>
-                <th>Resource group</th>
+                <th>{aws ? 'Account' : 'Subscription'}</th>
+                {!aws && <th>Resource group</th>}
               </tr>
             </thead>
             <tbody>
               {plan.regions.flatMap((region, i) =>
                 [region.hub, ...region.spokes].map((vnet, k) => {
                   const kind = k > 0 ? 'spoke' : region.topology === 'vwan' ? 'virtual-hub' : 'hub';
-                  const suggested = suggestedPlacement(layout, region, vnet, kind, naming, primaryLocation);
+                  const suggested = suggestedPlacement(layout, region, vnet, kind, naming, primaryLocation, cloud);
                   return (
                     <tr key={vnet.id}>
                       <td className="muted">{k === 0 ? region.name : ''}</td>
                       <td>{vnet.name}</td>
                       <td>
                         <input
-                          aria-label={`Subscription for ${vnet.name}`}
+                          aria-label={`${aws ? 'Account' : 'Subscription'} for ${vnet.name}`}
                           placeholder={suggested.subscription}
                           value={vnet.subscription ?? ''}
                           onChange={(e) => updateVnet(i, k - 1, { subscription: e.target.value || undefined })}
                         />
                       </td>
-                      <td>
-                        <input
-                          aria-label={`Resource group for ${vnet.name}`}
-                          placeholder={suggested.resourceGroup}
-                          value={vnet.resourceGroup ?? ''}
-                          onChange={(e) => updateVnet(i, k - 1, { resourceGroup: e.target.value || undefined })}
-                        />
-                      </td>
+                      {!aws && (
+                        <td>
+                          <input
+                            aria-label={`Resource group for ${vnet.name}`}
+                            placeholder={suggested.resourceGroup}
+                            value={vnet.resourceGroup ?? ''}
+                            onChange={(e) => updateVnet(i, k - 1, { resourceGroup: e.target.value || undefined })}
+                          />
+                        </td>
+                      )}
                     </tr>
                   );
                 }),

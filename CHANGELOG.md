@@ -2,6 +2,15 @@
 
 User-visible changes to the ALZ CIDR Planner, newest first. Dates are when the change was made (US Central time). Since 14 October 2026, every change reaches production through a pull request.
 
+## 2026-10-16
+
+### Added
+- **AWS export.** Export IaC for AWS plans generates Terraform (hashicorp/aws 6.x) or a Terragrunt stack:
+  - an `aws` provider per account, assuming a deployment role in each
+  - generic modules for VPCs and subnets per Availability Zone, Transit Gateways per region (shared through AWS RAM and peered between regions), and VPC attachments
+  - account placement: one account, or the Landing Zone Accelerator's network account plus an account per workload
+- **Import from AWS.** Turn an existing AWS network into a new AWS design from AWS CLI output (CloudShell, PowerShell or one region). The inspection VPC is recognised, default VPCs are skipped, and each VPC keeps its account.
+
 ## 2026-10-15: PR [#5](https://github.com/absmart/cloud-network-calc/pull/5)
 
 ### Added

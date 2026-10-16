@@ -48,7 +48,19 @@ All logic is pure functions in `src/lib/`, and that is where every test lives. `
 
 **Allocation** (`ipv4.allocate`): at each level (root → regions, region → hub + spokes, VNet → subnets), pinned requests are placed first, then the rest go first-fit on natural alignment in list order. As a result, appending a block never moves existing ones, and list order matters. Allocation failures become `Issue`s; they are never thrown. The region's hub is always request index 0 ahead of the spokes.
 
-**Clouds.** `PlanSpec.cloud` is `'azure'` (or missing, for older plans) or `'aws'`; `cloudOf(plan)` reads it. `cloud.ts` gathers everything that differs: words and limits (`CLOUDS`), regions (`regionsByGeography`, `regionName`, `regionShortCode`, `partnerRegion`), new plans and regions (`newPlan`, `nextRegion`), templates (`spokeTemplates`) and `relocate`. AWS rules and regions are in `aws.ts`, the AWS layout in `awsDefaults.ts`. `computePlan` applies the plan's cloud's rules (Azure presets and Virtual WAN only for Azure; VPC block limits, secondary CIDR restrictions and quota only for AWS). Components get the cloud from `CloudContext` (`useCloud()`), provided by `App.tsx`. Export, import, compare and placement are Azure-only (`CLOUDS[cloud].hasExport`).
+**Clouds.** `PlanSpec.cloud` is `'azure'` (or missing, for older plans) or `'aws'`; `cloudOf(plan)` reads it. `cloud.ts` gathers everything that differs: words and limits (`CLOUDS`), regions (`regionsByGeography`, `regionName`, `regionShortCode`, `partnerRegion`), new plans and regions (`newPlan`, `nextRegion`), templates (`spokeTemplates`) and `relocate`. AWS rules and regions are in `aws.ts`, the AWS layout in `awsDefaults.ts`. `computePlan` applies the plan's cloud's rules (Azure presets and Virtual WAN only for Azure; VPC block limits, secondary CIDR restrictions and quota only for AWS). Components get the cloud from `CloudContext` (`useCloud()`), provided by `App.tsx`. Compare is Azure-only.
+
+**AWS export and import.** `awsIac.ts` mirrors the Azure Terraform export for AWS:
+- `buildAwsModel` builds the model: VPCs with Name tags, subnets with Availability Zones from their `-a`/`-b` suffix, a Transit Gateway per region in the hub's account, attachments through `tgw-*` subnets, and full-mesh peerings between Transit Gateways in the same account.
+- `toAwsTerraform(accounts)` generates the root, with one `aws` provider alias per account (`accountAliases`), each assuming `var.deployment_role_name`, and `vpcs_`/`transit_`/`attachments_<alias>` module calls.
+- `toAwsTerraformModules()` holds the generic modules.
+- It relies on aws provider 6.x's per-resource `region` argument.
+
+Checking changes to it:
+- `terraform validate` works offline after init.
+- For `terraform plan`, add an override.tf giving each provider alias mock keys and `skip_credentials_validation`/`skip_requesting_account_id`/`skip_metadata_api_check`, and set `deployment_role_name = null`.
+
+Placement for AWS uses the same `VnetSpec.subscription` field as an account key, with `AWS_PLACEMENT_LAYOUTS` (`single`, `alz` = Landing Zone Accelerator). `importAws.ts` reads AWS CLI output (`AWS_IMPORT_COMMANDS`), sharing `parseDocuments` and `regionBlocks` with the Azure importer. `AzureExportInput` and `ImportAzureDialog` take a `cloud` prop.
 
 **Excluded ranges.** `PlanSpec.excluded` (optional) is parsed into `PlanResult.excluded` (`Blocked[]`). `allocate` takes them as `blocked`: automatic placement goes round them and an overlapping pin is an error. With `mayEnclose` (root → regions only), a block may contain blocked space smaller than itself. Region and VNet allocation pass them too, and `free` at root and region level leaves them out.
 

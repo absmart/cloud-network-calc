@@ -111,7 +111,7 @@ const NOT_JSON = 'The text is not valid JSON.';
  * more than one command, subscription or results page). Text between them,
  * such as CLI warnings and prompts copied from a terminal, is skipped.
  */
-function parseDocuments(input: string): { docs: unknown[]; skippedText: boolean } {
+export function parseDocuments(input: string): { docs: unknown[]; skippedText: boolean } {
   try {
     return { docs: [JSON.parse(input)], skippedText: false };
   } catch {
@@ -148,7 +148,7 @@ function parseDocuments(input: string): { docs: unknown[]; skippedText: boolean 
 }
 
 /** Whether a response says it has more pages (Resource Graph skip token, ARM nextLink). */
-const hasMorePages = (doc: unknown) =>
+export const hasMorePages = (doc: unknown) =>
   isObject(doc) && ['skip_token', '$skipToken', 'skipToken', 'nextLink'].some((k) => text(fieldOwn(doc, k)));
 
 /** Every resource object in the input, whatever wrapper it came in. */
@@ -407,6 +407,24 @@ export function readAzureNetwork(input: string): {
  * or several of these pasted one after another. Throws with a readable message if nothing
  * usable is found.
  */
+/**
+ * Each imported region's block: the smallest one covering its networks,
+ * widened to a /16 when that doesn't take in another region's networks.
+ */
+export function regionBlocks(used: Map<string, Cidr[]>): Map<string, Cidr> {
+  return new Map(
+    [...used].map(([location, cidrs]) => {
+      let block = supernet(cidrs);
+      if (block.prefix > 16) {
+        const wide = { base: block.base - (block.base % blockSize(16)), prefix: 16 };
+        const others = [...used].filter(([l]) => l !== location).flatMap(([, o]) => o);
+        if (!others.some((c) => overlaps(c, wide))) block = wide;
+      }
+      return [location, block];
+    }),
+  );
+}
+
 export function importAzureNetwork(input: string, name = 'Imported Azure network'): AzureImport {
   const { vnets, hubs, notes } = readAzureNetwork(input);
 
@@ -418,21 +436,18 @@ export function importAzureNetwork(input: string, name = 'Imported Azure network
   for (const v of vnets.values()) group(v.location).vnets.push(v);
   for (const h of hubs.values()) group(h.location).hubs.push(h);
 
-  // A region's block is the smallest one covering its networks, widened to a
-  // /16 when that doesn't take in another region's networks.
-  const used = (g: { vnets: FoundVnet[]; hubs: FoundHub[] }) => [
-    ...g.vnets.flatMap((v) => [v.cidr, ...v.extra]),
-    ...g.hubs.map((h) => h.cidr),
-  ];
-  const placed = [...locations].map(([location, g]) => {
-    let block = supernet(used(g));
-    if (block.prefix > 16) {
-      const wide = { base: block.base - (block.base % blockSize(16)), prefix: 16 };
-      const others = [...locations].filter(([l]) => l !== location).flatMap(([, o]) => used(o));
-      if (!others.some((c) => overlaps(c, wide))) block = wide;
-    }
-    return { block, region: buildRegion(location, g.vnets, g.hubs, notes) };
-  });
+  const blocks = regionBlocks(
+    new Map(
+      [...locations].map(([location, g]) => [
+        location,
+        [...g.vnets.flatMap((v) => [v.cidr, ...v.extra]), ...g.hubs.map((h) => h.cidr)],
+      ]),
+    ),
+  );
+  const placed = [...locations].map(([location, g]) => ({
+    block: blocks.get(location)!,
+    region: buildRegion(location, g.vnets, g.hubs, notes),
+  }));
   placed.sort((a, b) => a.block.base - b.block.base);
   const regions = placed.map(({ block, region }) => ({ ...region, prefix: block.prefix, fixed: formatCidr(block) }));
 

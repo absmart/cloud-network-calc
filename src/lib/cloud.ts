@@ -37,7 +37,7 @@ export interface CloudInfo {
   smallestSubnetPrefix: number;
   /** The largest virtual network (shortest prefix) the cloud allows, if it limits it. */
   largestNetworkPrefix: number;
-  /** Export, import and compare are Azure-only for now. */
+  /** Whether the IaC export supports the cloud. (Comparing with what's deployed is Azure-only.) */
   hasExport: boolean;
 }
 
@@ -58,7 +58,7 @@ export const CLOUDS: Record<Cloud, CloudInfo> = {
     landingZone: 'Workload',
     smallestSubnetPrefix: smallestSubnetPrefix('aws'),
     largestNetworkPrefix: AWS_LARGEST_PREFIX,
-    hasExport: false,
+    hasExport: true,
   },
 };
 
