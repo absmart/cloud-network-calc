@@ -2,7 +2,7 @@
 
 User-visible changes to the ALZ CIDR Planner, newest first. Dates are when the change was made (US Central time). Since 14 October 2026, every change reaches production through a pull request.
 
-## 2026-10-15
+## 2026-10-15: PR [#5](https://github.com/absmart/cloud-network-calc/pull/5)
 
 ### Added
 - **AWS networks.** An **Azure | AWS** toggle in the top bar; each design is for one cloud, and switching starts a new plan in the other. AWS plans get:
