@@ -75,7 +75,7 @@ function nameTag(o: unknown): string {
 /** The region of a resource from its ARN (arn:aws:ec2:us-east-1:...), if it has one. */
 const regionOfArn = (arn: string) => arn.split(':')[3] || '';
 
-interface FoundVpc {
+export interface FoundVpc {
   id: string;
   name: string;
   owner: string;
@@ -83,10 +83,12 @@ interface FoundVpc {
   cidrs: Cidr[];
 }
 
-interface FoundSubnet {
+export interface FoundSubnet {
   vpc: string;
   name: string;
   cidr: Cidr;
+  /** Availability Zone, such as us-east-1a; empty if not given. */
+  zone: string;
   region: string;
 }
 
@@ -98,6 +100,30 @@ interface FoundSubnet {
  * Throws with a readable message if no VPCs are found.
  */
 export function importAwsNetwork(input: string, name = 'Imported AWS network'): AwsImport {
+  const { vpcs, subnets, transitGateways, attached, notes } = readAwsNetwork(input);
+  const tgwCount = transitGateways.length;
+  return buildPlan(vpcs, subnets, attached, tgwCount, notes, name);
+}
+
+export interface AwsTransitGatewayFound {
+  id: string;
+  name: string;
+  region: string;
+  owner: string;
+}
+
+/**
+ * The VPCs (non-default, keyed by VPC ID), subnets, Transit Gateways and
+ * attachments (VPC ID → appliance mode) in AWS CLI output, with notes on
+ * anything skipped. Throws if there are no VPCs.
+ */
+export function readAwsNetwork(input: string): {
+  vpcs: Map<string, FoundVpc>;
+  subnets: FoundSubnet[];
+  transitGateways: AwsTransitGatewayFound[];
+  attached: Map<string, { appliance: boolean }>;
+  notes: ImportNote[];
+} {
   const { docs, skippedText } = parseDocuments(input);
   const notes: ImportNote[] = [];
   if (skippedText) notes.push({ level: 'info', message: 'Text that isn’t JSON (such as CLI messages) was skipped' });
@@ -136,6 +162,7 @@ export function importAwsNetwork(input: string, name = 'Imported AWS network'): 
         vpc: text(item.VpcId),
         name: nameTag(item) || text(item.SubnetId) || 'subnet',
         cidr: c,
+        zone,
         region: region || regionOfArn(text(item.SubnetArn)) || zone.replace(/[a-z]$/, ''),
       },
     ];
@@ -180,9 +207,32 @@ export function importAwsNetwork(input: string, name = 'Imported AWS network'): 
     const appliance = isObject(item.Options) && text(item.Options.ApplianceModeSupport) === 'enable';
     if (vpc) attached.set(vpc, { appliance: appliance || attached.get(vpc)?.appliance === true });
   }
-  const tgwCount = new Set(tgwItems.map(({ item }) => (isObject(item) ? text(item.TransitGatewayId) : '')).filter(Boolean)).size;
 
-  const roleOf = (v: FoundVpc): VnetRole =>
+  const transitGateways = new Map<string, AwsTransitGatewayFound>();
+  for (const { item, region } of tgwItems) {
+    if (!isObject(item)) continue;
+    const id = text(item.TransitGatewayId);
+    if (!id || transitGateways.has(id)) continue;
+    transitGateways.set(id, {
+      id,
+      name: nameTag(item) || id,
+      region: region || regionOfArn(text(item.TransitGatewayArn)),
+      owner: text(item.OwnerId),
+    });
+  }
+  return { vpcs, subnets, transitGateways: [...transitGateways.values()], attached, notes };
+}
+
+/** The plan for what readAwsNetwork found: one region per AWS region, its inspection VPC as the hub. */
+function buildPlan(
+  vpcs: Map<string, FoundVpc>,
+  subnets: FoundSubnet[],
+  attached: Map<string, { appliance: boolean }>,
+  tgwCount: number,
+  notes: ImportNote[],
+  name: string,
+): AwsImport {
+  const roleOf =(v: FoundVpc): VnetRole =>
     /egress/i.test(v.name) ? 'egress' : /endpoint/i.test(v.name) ? 'endpoints' : 'landing-zone';
 
   const toVpcSpec = (v: FoundVpc, isHub: boolean): VnetSpec => {

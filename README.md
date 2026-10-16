@@ -96,7 +96,7 @@ An AWS plan uses the same planner — regions, excluded ranges, the visual edito
 
 **⋯ → Import from AWS** reads the output of a command run in AWS CloudShell (bash) or PowerShell that lists VPCs, subnets, Transit Gateways and their attachments in every region of an account (run it per account and paste the outputs together), or plain `aws ec2 describe-*` output for one region. Default VPCs are skipped. Each region's hub is the VPC whose Transit Gateway attachment uses appliance mode, else one with firewall subnets or "inspection" in its name. Everything is pinned where it is, and each VPC keeps its account as its placement.
 
-Compare is Azure-only for now.
+**⋯ → Compare with AWS** checks an AWS plan against the same AWS CLI output. VPCs are matched by the Name tag the export gives them or their planner name, then by overlapping CIDR blocks in the same region, and Transit Gateways by name, then by region. It reports a different region, account (when the plan names a 12-digit account ID), CIDR blocks, subnets (CIDR and Availability Zone), and Transit Gateway attachments, plus VPCs and Transit Gateways that are only in the plan or only in AWS.
 
 ## Share link
 

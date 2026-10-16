@@ -295,16 +295,15 @@ export default function App() {
                 title: 'Load an existing AWS network from AWS CLI output, as a new AWS design',
                 onSelect: () => setImporting('aws'),
               },
-              // Compare checks an Azure plan against Azure (AWS compare isn't built yet); each import opens a new design in its cloud.
-              ...(cloud === 'azure'
-                ? [
-                    {
-                      label: 'Compare with Azure…',
-                      title: 'Check this plan against what is deployed, from Azure CLI or PowerShell output',
-                      onSelect: () => setComparingAzure(true),
-                    },
-                  ]
-                : []),
+              // Compare checks the plan against its own cloud; each import opens a new design in its cloud.
+              {
+                label: `Compare with ${CLOUDS[cloud].label}…`,
+                title:
+                  cloud === 'aws'
+                    ? 'Check this plan against what is deployed, from AWS CLI output'
+                    : 'Check this plan against what is deployed, from Azure CLI or PowerShell output',
+                onSelect: () => setComparingAzure(true),
+              },
               { label: 'Reset to the example plan', onSelect: reset, separated: true },
             ]}
           />
