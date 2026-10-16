@@ -2,7 +2,7 @@
 
 User-visible changes to the ALZ CIDR Planner, newest first. Dates are when the change was made (US Central time). Since 14 October 2026, every change reaches production through a pull request.
 
-## 2026-10-16
+## 2026-10-16: PR [#6](https://github.com/absmart/cloud-network-calc/pull/6)
 
 ### Added
 - **AWS export.** Export IaC for AWS plans generates Terraform (hashicorp/aws 6.x) or a Terragrunt stack:
