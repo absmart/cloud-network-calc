@@ -79,6 +79,17 @@ The **Designs** button keeps multiple named designs:
 - Each design keeps the full plan (regions, CIDRs, VNets, subnets, layouts) and the IaC naming options.
 - **Export** one design, the current plan, or **all** designs to a `.json` backup, and **Import** them again here or in another browser. Saved designs live in this browser only, so export them to keep a real backup.
 
+## AWS networks
+
+The **Azure | AWS** toggle at the left of the top bar picks the cloud. Each design is for one cloud: switching starts a new example plan in the other (asking first if the current one isn't saved), and saved designs, backups and share links keep their cloud. Plans saved before AWS support are Azure.
+
+An AWS plan uses the same planner — regions, excluded ranges, the visual editor, sizing, headroom, undo, designs and share links — with AWS's rules and layout:
+- **Starting layout per region**, after the network design of AWS's Landing Zone Accelerator: a Transit Gateway hub with an **inspection VPC** (Transit Gateway attachment and Network Firewall subnets), an **egress VPC** (public subnets for NAT gateways), a **shared endpoints VPC** (interface endpoints, Route 53 Resolver) and a **workload VPC** (private and data subnets). Every VPC lays its subnets out once per Availability Zone (`private-a`, `private-b`, `private-c`) with a dedicated /28 per AZ for its Transit Gateway attachment. **+ Add VPC** offers these plus an internet-facing workload VPC and an empty one, and **Add subnet** adds a tier once per AZ.
+- **Rules:** VPC CIDR blocks of /16 to /28, subnets of /28 or larger, 5 reserved addresses per subnet, no link-local, loopback or multicast ranges, the 5-CIDR-block default quota, and AWS's restriction on secondary CIDRs from a different RFC 1918 block than the primary (a 10.x VPC can't add 172.16–31.x or 192.168.x). Overlapping Docker's 172.17.0.0/16 is a warning. Additional address ranges are a VPC's **secondary CIDRs**.
+- **Regions:** the commercial AWS regions with short codes for names (`us-east-1` → `use1`) and their Availability Zones. New plans start in us-east-1 and us-west-2; the next region added is the latest region's usual disaster-recovery partner, else one in the same geography.
+
+Export, Import and Compare are Azure-only for now, so they're unavailable for AWS plans.
+
 ## Share link
 
 **⋯ → Copy share link** copies a link that opens the current plan, with its IaC naming options. The design is compressed into the part of the link after `#`, which browsers never send to a server, so nothing is uploaded: anyone with the link has the design, and nobody else does. The default plan makes a link of about 700 characters. Opening a link shows what it holds and asks before replacing the current plan; **Open and save to my designs** also keeps it as a saved design. The design is then removed from the address bar, so a reload doesn't offer it again.

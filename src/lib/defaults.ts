@@ -14,9 +14,9 @@ export const newId = () => Math.random().toString(36).slice(2, 10);
 export const subnet = (name: string, prefix: number): SubnetSpec => ({ id: newId(), name, prefix });
 
 /** A subnet at a fixed offset from the start of its VNet. */
-const placed = (name: string, prefix: number, offset: number): SubnetSpec => ({ ...subnet(name, prefix), offset });
+export const placed = (name: string, prefix: number, offset: number): SubnetSpec => ({ ...subnet(name, prefix), offset });
 
-const vnet = (name: string, prefix: number, subnets: SubnetSpec[], role?: VnetRole): VnetSpec => ({
+export const vnet = (name: string, prefix: number, subnets: SubnetSpec[], role?: VnetRole): VnetSpec => ({
   id: newId(),
   name,
   ...(role && { role }),
@@ -212,20 +212,27 @@ export function nextUnusedLocation(plan: PlanSpec): string {
 }
 
 /**
- * Move a region to another Azure location, renaming the region (if it still
- * has the default display name) and any VNet names that carry the old region
- * code (or, in plans saved before codes were used, the old location name).
+ * Move a region to another location, renaming the region (if it still has the
+ * default display name) and any VNet names that carry the old region code (or,
+ * in plans saved before codes were used, the old location name). The region
+ * names and codes are Azure's unless the cloud's own are given.
  */
-export function relocateRegion(region: RegionSpec, location: string): RegionSpec {
+export function relocateRegion(
+  region: RegionSpec,
+  location: string,
+  codeOf: (location: string) => string = regionCode,
+  nameOf: (location: string) => string = regionDisplayName,
+): RegionSpec {
   const old = region.location;
-  const oldTokens = [...new Set([regionCode(old), old])].filter(Boolean).join('|');
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const oldTokens = [...new Set([codeOf(old), old])].filter(Boolean).map(escape).join('|');
   const rename = (name: string) =>
-    oldTokens ? name.replace(new RegExp(`(^|-)(${oldTokens})(?=-|$)`, 'g'), `$1${regionCode(location)}`) : name;
+    oldTokens ? name.replace(new RegExp(`(^|-)(${oldTokens})(?=-|$)`, 'g'), `$1${codeOf(location)}`) : name;
   const renameVnet = (v: VnetSpec): VnetSpec => ({ ...v, name: rename(v.name) });
   return {
     ...region,
     location,
-    name: region.name === regionDisplayName(old) ? regionDisplayName(location) : region.name,
+    name: region.name === nameOf(old) ? nameOf(location) : region.name,
     hub: renameVnet(region.hub),
     spokes: region.spokes.map(renameVnet),
   };

@@ -2,6 +2,17 @@
 
 User-visible changes to the ALZ CIDR Planner, newest first. Dates are when the change was made (US Central time). Since 14 October 2026, every change reaches production through a pull request.
 
+## 2026-10-15: PR [#5](https://github.com/absmart/cloud-network-calc/pull/5)
+
+### Added
+- **AWS networks.** An **Azure | AWS** toggle in the top bar; each design is for one cloud, and switching starts a new plan in the other. AWS plans get:
+  - a Transit Gateway layout per region: inspection, egress, shared endpoints and workload VPCs, with subnets laid out once per Availability Zone and a /28 per AZ for Transit Gateway attachments
+  - AWS rules: VPC blocks /16 to /28, /28 minimum subnets, the secondary CIDR restrictions and quota
+  - the AWS region list with Availability Zones
+  - everything else the planner does, from excluded ranges to share links
+
+  Export, Import and Compare stay Azure-only for now.
+
 ## 2026-10-14 (evening): PRs [#2](https://github.com/absmart/cloud-network-calc/pull/2) and [#3](https://github.com/absmart/cloud-network-calc/pull/3)
 
 ### Added

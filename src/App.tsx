@@ -10,14 +10,9 @@ import { SharedLinkDialog } from './components/SharedLinkDialog';
 import { RegionCard } from './components/RegionCard';
 import { SummaryTable } from './components/SummaryTable';
 import { RegionOverview } from './components/RegionOverview';
-import {
-  REGION_PREFIX,
-  defaultPlan,
-  makeRegion,
-  migratePlan,
-  nextUnusedLocation,
-  platformLayoutOf,
-} from './lib/defaults';
+import { CloudContext } from './components/cloudContext';
+import { CLOUDS, cloudOf, newPlan, nextRegion } from './lib/cloud';
+import { REGION_PREFIX, defaultPlan, migratePlan } from './lib/defaults';
 import {
   type SavedDesign,
   createDesign,
@@ -28,7 +23,7 @@ import {
 } from './lib/designs';
 import { record, redo, startHistory, undo } from './lib/history';
 import { formatCidr } from './lib/ipv4';
-import { type PlanSpec, type RegionSpec, computePlan, countIssues } from './lib/planner';
+import { type Cloud, type PlanSpec, type RegionSpec, computePlan, countIssues } from './lib/planner';
 import { type SharedDesign, decodeDesign, isShareFragment, shareUrl } from './lib/shareLink';
 import { STORAGE_KEYS, loadNaming, readJson, writeJson } from './lib/storage';
 
@@ -65,6 +60,7 @@ export default function App() {
   const [incoming, setIncoming] = useState<{ shared: SharedDesign | null; error: string | null } | null>(null);
   const [storageOk, setStorageOk] = useState(true);
   const result = useMemo(() => computePlan(plan), [plan]);
+  const cloud = cloudOf(plan);
   const counts = countIssues(result);
 
   // Saved designs, and the one the current plan belongs to (if any).
@@ -105,8 +101,9 @@ export default function App() {
     writeJson(STORAGE_KEYS.naming, design.naming);
   };
 
-  const newDesign = () => {
-    const fresh = defaultPlan();
+  /** Start a new example plan, in the current cloud unless another is given. */
+  const newDesign = (target: Cloud = cloud) => {
+    const fresh = newPlan(target);
     replacePlan(fresh);
     setActiveDesignId(null);
     setSelected(fresh.regions[0].id);
@@ -199,25 +196,45 @@ export default function App() {
     setPlan({ ...plan, regions: plan.regions.map((r, i) => (i === index ? region : r)) });
 
   const addRegion = () => {
-    // New regions follow the last region's topology and platform layout, each with its own hub.
-    const last = plan.regions.at(-1);
-    const region = makeRegion(
-      nextUnusedLocation(plan),
-      last?.topology ?? 'hub-spoke',
-      last ? platformLayoutOf(last) : 'separate',
-    );
+    // In Azure, new regions follow the last region's topology and platform layout; each gets its own hub.
+    const region = nextRegion(plan);
     setPlan({ ...plan, regions: [...plan.regions, region] });
     setSelected(region.id);
   };
 
   const reset = () => {
-    if (window.confirm('Replace the current plan with the default example? Saved designs are kept.')) newDesign();
+    if (window.confirm(`Replace the current plan with the ${CLOUDS[cloud].label} example? Saved designs are kept.`)) newDesign();
+  };
+
+  /** The cloud toggle: each design is for one cloud, so switching starts a new plan in the other. */
+  const switchCloud = (target: Cloud) => {
+    if (target === cloud) return;
+    const question = activeDesign
+      ? unsaved
+        ? `"${activeDesign.name}" has unsaved changes. Start a new ${CLOUDS[target].label} plan without saving them?`
+        : `Start a new ${CLOUDS[target].label} plan? "${activeDesign.name}" stays in your saved designs.`
+      : `Start a new ${CLOUDS[target].label} plan? The current plan isn't saved as a design and will be replaced.`;
+    if (window.confirm(question)) newDesign(target);
   };
 
   return (
+    <CloudContext.Provider value={cloud}>
     <div className="app">
       <header className="topbar">
         <div className="row">
+          <div className="tabs cloud-toggle" role="group" aria-label="Cloud">
+            {(['azure', 'aws'] as const).map((c) => (
+              <button
+                key={c}
+                className={cloud === c ? 'active' : ''}
+                aria-pressed={cloud === c}
+                title={cloud === c ? `This is an ${CLOUDS[c].label} plan` : `Start a new ${CLOUDS[c].label} plan`}
+                onClick={() => switchCloud(c)}
+              >
+                {CLOUDS[c].label}
+              </button>
+            ))}
+          </div>
           <input className="plan-name" value={plan.name} onChange={(e) => setPlan({ ...plan, name: e.target.value })} />
           <button
             className={`chip save-chip ${activeDesign && !unsaved ? 'saved' : 'unsaved'}`}
@@ -250,7 +267,12 @@ export default function App() {
             {counts.errors} errors · {counts.warnings} warnings
           </span>
           <button onClick={() => setShowDesigns(true)}>Designs{designs.length ? ` (${designs.length})` : ''}</button>
-          <button className="primary" onClick={() => setExporting(true)}>
+          <button
+            className="primary"
+            disabled={!CLOUDS[cloud].hasExport}
+            title={CLOUDS[cloud].hasExport ? undefined : `Export is Azure-only for now; ${CLOUDS[cloud].label} plans are for planning`}
+            onClick={() => setExporting(true)}
+          >
             Export IaC
           </button>
           <Menu
@@ -267,11 +289,16 @@ export default function App() {
                 title: 'Load an existing Azure network from Azure CLI or PowerShell output',
                 onSelect: () => setImportingAzure(true),
               },
-              {
-                label: 'Compare with Azure…',
-                title: 'Check this plan against what is deployed, from Azure CLI or PowerShell output',
-                onSelect: () => setComparingAzure(true),
-              },
+              // Compare checks an Azure plan against Azure; import always opens a new Azure design.
+              ...(cloud === 'azure'
+                ? [
+                    {
+                      label: 'Compare with Azure…',
+                      title: 'Check this plan against what is deployed, from Azure CLI or PowerShell output',
+                      onSelect: () => setComparingAzure(true),
+                    },
+                  ]
+                : []),
               { label: 'Reset to the example plan', onSelect: reset, separated: true },
             ]}
           />
@@ -387,7 +414,7 @@ export default function App() {
           onSave={() => saveDesign()}
           onSaveAsNew={() => saveDesign(true)}
           onOpen={openDesign}
-          onNew={newDesign}
+          onNew={() => newDesign()}
           onRename={renameSavedDesign}
           onDuplicate={(id) => {
             const source = designs.find((d) => d.id === id);
@@ -404,5 +431,6 @@ export default function App() {
         </div>
       )}
     </div>
+    </CloudContext.Provider>
   );
 }

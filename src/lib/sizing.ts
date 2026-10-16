@@ -1,14 +1,19 @@
 // Sizing help: how big a subnet or VNet needs to be, and how much more fits.
 
+import { AWS_SMALLEST_PREFIX } from './aws';
 import { AZURE_RESERVED_IPS, SMALLEST_SUBNET_PREFIX } from './azure';
 import { type Cidr, blockSize } from './ipv4';
+import type { Cloud } from './planner';
 
-/** Usable addresses in an Azure subnet of this size (Azure keeps 5 of every subnet). */
+/** Usable addresses in a subnet of this size. Azure and AWS both keep 5 of every subnet. */
 export const usableAddresses = (prefix: number) => Math.max(0, blockSize(prefix) - AZURE_RESERVED_IPS);
 
-/** The smallest subnet with room for `hosts` addresses: Azure's 5 reserved ones on top, and never below a /29. */
-export function prefixForHosts(hosts: number): number {
-  let prefix = SMALLEST_SUBNET_PREFIX;
+/** The smallest subnet a cloud allows: a /29 in Azure, a /28 in AWS. */
+export const smallestSubnetPrefix = (cloud: Cloud = 'azure') => (cloud === 'aws' ? AWS_SMALLEST_PREFIX : SMALLEST_SUBNET_PREFIX);
+
+/** The smallest subnet with room for `hosts` addresses: the 5 reserved ones on top, and never below the cloud's minimum. */
+export function prefixForHosts(hosts: number, cloud: Cloud = 'azure'): number {
+  let prefix = smallestSubnetPrefix(cloud);
   while (prefix > 0 && usableAddresses(prefix) < hosts) prefix--;
   return prefix;
 }

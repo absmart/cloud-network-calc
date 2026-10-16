@@ -1,20 +1,25 @@
 import { useId, useState } from 'react';
-import { RESERVED_NAME_PRESETS, SMALLEST_SUBNET_PREFIX, SUBNET_PRESETS, presetForName } from '../lib/azure';
+import { AWS_SUBNET_PRESETS } from '../lib/aws';
+import { awsZones } from '../lib/awsDefaults';
+import { RESERVED_NAME_PRESETS, SUBNET_PRESETS } from '../lib/azure';
+import { CLOUDS, isSpecialSubnet } from '../lib/cloud';
 import { newId } from '../lib/defaults';
 import { blockSize, contains, endOf, formatCidr, formatIp } from '../lib/ipv4';
 import { addRange, applyRangeView, rangeView, removeRange } from '../lib/layout';
 import type { RangeSpec, SubnetSpec, VnetResult, VnetRole, VnetSpec } from '../lib/planner';
 import { AllocationBar, CidrBadge, Issues, PinInput, PrefixSelect } from './common';
+import { useCloud } from './cloudContext';
 import { VisualSubnetEditor } from './VisualSubnetEditor';
 import { prefixForHosts, prefixHolding, usableAddresses } from '../lib/sizing';
 
-const KIND_LABEL = { hub: 'Hub VNet', 'virtual-hub': 'Virtual WAN hub', spoke: 'Spoke' } as const;
 
 const ROLE_LABEL: Record<VnetRole, string> = {
   platform: 'Platform',
   identity: 'Identity',
   management: 'Management',
   security: 'Security',
+  egress: 'Egress',
+  endpoints: 'Shared endpoints',
   'landing-zone': 'Landing zone',
 };
 
@@ -22,10 +27,26 @@ export function VnetCard(props: {
   spec: VnetSpec;
   result: VnetResult;
   minPrefix: number;
+  /** The region's location, for AWS subnets laid out per Availability Zone. */
+  location: string;
   onChange: (spec: VnetSpec) => void;
   onRemove?: () => void;
 }) {
   const { spec, result, onChange } = props;
+  const cloud = useCloud();
+  const info = CLOUDS[cloud];
+  const smallest = info.smallestSubnetPrefix;
+  // AWS VPC CIDR blocks are /16 at most.
+  const networkMin = Math.max(props.minPrefix, info.largestNetworkPrefix);
+  const zones = cloud === 'aws' ? awsZones(props.location) : [];
+  const label =
+    result.kind === 'virtual-hub'
+      ? 'Virtual WAN hub'
+      : result.kind === 'hub'
+        ? info.hub
+        : spec.role && spec.role !== 'landing-zone'
+          ? ROLE_LABEL[spec.role]
+          : info.landingZone;
   const datalistId = useId();
   const [mode, setMode] = useState<'visual' | 'list'>('visual');
   const isVirtualHub = result.kind === 'virtual-hub';
@@ -42,6 +63,16 @@ export function VnetCard(props: {
     onChange({ ...spec, subnets: spec.subnets.map((s, i) => (i === index ? { ...s, ...patch } : s)) });
 
   const addSubnet = (presetIndex: string) => {
+    if (cloud === 'aws') {
+      // An AWS tier gets one subnet per Availability Zone, skipping names already used.
+      const preset = AWS_SUBNET_PRESETS[Number(presetIndex)];
+      const taken = new Set(spec.subnets.map((s) => s.name));
+      const added: SubnetSpec[] = preset
+        ? zones.map((z) => `${preset.name}-${z}`).filter((n) => !taken.has(n)).map((name) => ({ id: newId(), name, prefix: preset.defaultPrefix }))
+        : [{ id: newId(), name: `subnet${spec.subnets.length + 1}`, prefix: 26 }];
+      onChange({ ...spec, subnets: [...spec.subnets, ...added] });
+      return;
+    }
     const preset = SUBNET_PRESETS[Number(presetIndex)];
     const subnet: SubnetSpec = preset
       ? { id: newId(), name: preset.name, prefix: preset.defaultPrefix }
@@ -53,20 +84,20 @@ export function VnetCard(props: {
     <section className={`vnet vnet-${result.kind}${spec.role && spec.role !== 'landing-zone' ? ' vnet-platform' : ''}`}>
       <header className="row">
         <span className="kind">
-          {result.kind === 'spoke' ? ROLE_LABEL[spec.role ?? 'landing-zone'] : KIND_LABEL[result.kind]}
+          {label}
         </span>
         <input className="name" value={spec.name} onChange={(e) => onChange({ ...spec, name: e.target.value })} />
         <PrefixSelect
           value={spec.prefix}
-          min={props.minPrefix}
-          max={SMALLEST_SUBNET_PREFIX}
+          min={networkMin}
+          max={smallest}
           disabled={!!spec.fixed?.trim()}
           onChange={(prefix) => onChange({ ...spec, prefix })}
         />
         <PinInput value={spec.fixed} onChange={(fixed) => onChange({ ...spec, fixed })} />
         <CidrBadge cidr={result.cidr} />
         {props.onRemove && (
-          <button className="icon" title="Remove VNet" onClick={props.onRemove}>
+          <button className="icon" title={`Remove ${info.network}`} onClick={props.onRemove}>
             ✕
           </button>
         )}
@@ -77,8 +108,8 @@ export function VnetCard(props: {
             <span className="kind">Range {i + 2}</span>
             <PrefixSelect
               value={range.prefix}
-              min={props.minPrefix}
-              max={SMALLEST_SUBNET_PREFIX}
+              min={networkMin}
+              max={smallest}
               disabled={!!range.fixed?.trim()}
               onChange={(prefix) => updateRange(i, { prefix })}
             />
@@ -113,7 +144,7 @@ export function VnetCard(props: {
                     id: s.id,
                     label: s.name,
                     cidr: s.cidr,
-                    tone: presetForName(s.name) ? 'special' : 'subnet',
+                    tone: isSpecialSubnet(cloud, s.name) ? 'special' : 'subnet',
                   }))}
               />
             ) : null,
@@ -187,7 +218,7 @@ export function VnetCard(props: {
                           onChange={(e) => {
                             const hosts = Math.max(0, Math.floor(Number(e.target.value))) || undefined;
                             // A pinned subnet keeps its size; the planner warns if it's too small.
-                            const resize = hosts && !s.fixed?.trim() ? { prefix: prefixForHosts(hosts), offset: undefined } : {};
+                            const resize = hosts && !s.fixed?.trim() ? { prefix: prefixForHosts(hosts, cloud), offset: undefined } : {};
                             updateSubnet(i, { hosts, ...resize });
                           }}
                         />
@@ -196,7 +227,7 @@ export function VnetCard(props: {
                         <PrefixSelect
                           value={s.prefix}
                           min={vnetPrefix}
-                          max={SMALLEST_SUBNET_PREFIX}
+                          max={smallest}
                           disabled={!!s.fixed?.trim()}
                           onChange={(prefix) => updateSubnet(i, { prefix, offset: undefined })}
                         />
@@ -231,8 +262,11 @@ export function VnetCard(props: {
             </table>
           )}
           <datalist id={datalistId}>
-            {RESERVED_NAME_PRESETS.map((p) => (
-              <option key={p.name} value={p.name} />
+            {(cloud === 'aws'
+              ? AWS_SUBNET_PRESETS.flatMap((p) => zones.map((z) => `${p.name}-${z}`))
+              : RESERVED_NAME_PRESETS.map((p) => p.name)
+            ).map((name) => (
+              <option key={name} value={name} />
             ))}
           </datalist>
           <div className="row footer">
@@ -245,18 +279,27 @@ export function VnetCard(props: {
             >
               <option value="">+ Add subnet…</option>
               <option value="custom">Custom subnet</option>
-              {SUBNET_PRESETS.map((p, i) => (
-                <option key={p.name} value={i} title={p.note}>
-                  {p.label} (/{p.defaultPrefix})
-                </option>
-              ))}
+              {cloud === 'aws'
+                ? AWS_SUBNET_PRESETS.map((p, i) => (
+                    <option key={p.name} value={i} title={p.note}>
+                      {p.label} (/{p.defaultPrefix}, one per AZ)
+                    </option>
+                  ))
+                : SUBNET_PRESETS.map((p, i) => (
+                    <option key={p.name} value={i} title={p.note}>
+                      {p.label} (/{p.defaultPrefix})
+                    </option>
+                  ))}
             </select>
-            <button title="Give the VNet another address range, placed after every VNet's main range" onClick={() => onChange(addRange(spec, spec.prefix))}>
-              + Add address range
+            <button
+              title={`Give the ${info.network} another address range, placed after every ${info.network}'s main range`}
+              onClick={() => onChange(addRange(spec, spec.prefix))}
+            >
+              {cloud === 'aws' ? '+ Add secondary CIDR' : '+ Add address range'}
             </button>
             {result.cidr && (
               <span className="muted">
-                {result.ranges.reduce((n, r) => n + (r ? blockSize(r.prefix) : 0), 0).toLocaleString()} addresses in VNet
+                {result.ranges.reduce((n, r) => n + (r ? blockSize(r.prefix) : 0), 0).toLocaleString()} addresses in {info.network}
               </span>
             )}
             {fit !== null && fit < spec.prefix && !spec.ranges?.length && (

@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
-import { AZURE_RESERVED_IPS, SMALLEST_SUBNET_PREFIX, presetForName } from '../lib/azure';
+import { AZURE_RESERVED_IPS } from '../lib/azure';
+import { CLOUDS, isSpecialSubnet } from '../lib/cloud';
 import { blockSize, contains, endOf, formatCidr, formatIp } from '../lib/ipv4';
 import { type Leaf, ancestor, assign, autoPack, divide, join, release, subnetsUnder, vnetLeaves } from '../lib/layout';
 import type { VnetResult, VnetSpec } from '../lib/planner';
+import { useCloud } from './cloudContext';
 import { Issues } from './common';
 
 /**
@@ -17,6 +19,7 @@ export function VisualSubnetEditor(props: {
   onChange: (spec: VnetSpec) => void;
 }) {
   const { spec, result, onChange } = props;
+  const cloud = useCloud();
   const vnet = result.cidr;
   if (!vnet) return <p className="note">This VNet has no address range yet. Fix the issues above to edit its subnets.</p>;
 
@@ -83,7 +86,7 @@ export function VisualSubnetEditor(props: {
               const index = leaf.subnet;
               const s = index !== null ? spec.subnets[index] : null;
               const r = index !== null ? result.subnets[index] : null;
-              const tone = !s ? 'free' : presetForName(s.name) ? 'special' : 'subnet';
+              const tone = !s ? 'free' : isSpecialSubnet(cloud, s.name) ? 'special' : 'subnet';
               return (
                 <tr key={formatCidr(leaf.cidr)} className={`leaf leaf-${tone}`}>
                   <td>
@@ -121,7 +124,7 @@ export function VisualSubnetEditor(props: {
                   <td>
                     <button
                       className="divide"
-                      disabled={leaf.cidr.prefix >= SMALLEST_SUBNET_PREFIX}
+                      disabled={leaf.cidr.prefix >= CLOUDS[cloud].smallestSubnetPrefix}
                       title={`Split into two /${leaf.cidr.prefix + 1} blocks`}
                       onClick={() => onChange(divide(spec, result, leaf))}
                     >

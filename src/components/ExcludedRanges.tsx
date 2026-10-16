@@ -1,8 +1,11 @@
+import { CLOUDS } from '../lib/cloud';
 import type { ExcludedRange } from '../lib/planner';
+import { useCloud } from './cloudContext';
 
 /** Address space the plan keeps clear of: on-premises, other clouds, partners. */
 export function ExcludedRanges(props: { ranges: ExcludedRange[]; onChange: (ranges: ExcludedRange[]) => void }) {
   const { ranges, onChange } = props;
+  const cloud = useCloud();
   const update = (index: number, patch: Partial<ExcludedRange>) =>
     onChange(ranges.map((r, i) => (i === index ? { ...r, ...patch } : r)));
 
@@ -12,8 +15,8 @@ export function ExcludedRanges(props: { ranges: ExcludedRange[]; onChange: (rang
       <div className="table-scroll">
         {ranges.length === 0 ? (
           <p className="muted">
-            None. Add on-premises, other cloud or partner ranges here, and no VNet will be placed in them. A region may still
-            enclose a smaller excluded range; its VNets go around it.
+            None. Add on-premises, other cloud or partner ranges here, and no {CLOUDS[cloud].network} will be placed in them. A region may
+            still enclose a smaller excluded range; its {CLOUDS[cloud].network}s go around it.
           </p>
         ) : (
           ranges.map((r, i) => (

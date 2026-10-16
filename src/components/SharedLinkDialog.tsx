@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { CLOUDS, cloudOf } from '../lib/cloud';
 import { computePlan, countIssues } from '../lib/planner';
 import type { SharedDesign } from '../lib/shareLink';
 
@@ -37,7 +38,8 @@ export function SharedLinkDialog(props: {
         {shared && counts && (
           <>
             <p>
-              The link you opened holds the design <strong>{shared.plan.name || 'Untitled design'}</strong>:{' '}
+              The link you opened holds the {CLOUDS[cloudOf(shared.plan)].label} design{' '}
+              <strong>{shared.plan.name || 'Untitled design'}</strong>:{' '}
               <code>{shared.plan.root}</code> with {shared.plan.regions.length} region{shared.plan.regions.length === 1 ? '' : 's'}
               {shared.plan.regions.length > 0 && ` (${shared.plan.regions.map((r) => r.name).join(', ')})`}.
             </p>

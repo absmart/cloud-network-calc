@@ -1212,3 +1212,10 @@ td {
 .dialog .placement button.link {
   margin-left: 6px;
 }
+
+/* Cloud toggle */
+
+.cloud-toggle button {
+  font-weight: 600;
+  min-width: 52px;
+}

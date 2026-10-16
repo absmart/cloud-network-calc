@@ -2,9 +2,9 @@ import { REGION_PREFIX } from '../lib/defaults';
 import { blockSize, formatCidr } from '../lib/ipv4';
 import { capacity } from '../lib/sizing';
 import type { PlanResult, PlanSpec, RegionSpec } from '../lib/planner';
-import { regionCode } from '../lib/naming';
-import { regionDisplayName } from '../lib/regions';
+import { regionName, regionShortCode } from '../lib/cloud';
 import type { CSSProperties } from 'react';
+import { useCloud } from './cloudContext';
 import { CidrBadge, regionColor } from './common';
 
 /** Spoke sizes to report room for: the region's landing zone sizes (largest first, at most two), else /22 and /24. */
@@ -25,6 +25,7 @@ export function RegionOverview({
   selected: string;
   onSelect: (regionId: string) => void;
 }) {
+  const cloud = useCloud();
   if (!plan.regions.length) return null;
   return (
     <section className="overview">
@@ -44,7 +45,7 @@ export function RegionOverview({
               <th>Region range</th>
               <th>Hub</th>
               <th>Hub range</th>
-              <th className="num">Spokes</th>
+              <th className="num">{cloud === 'aws' ? 'VPCs' : 'Spokes'}</th>
               <th className="num">Free addresses</th>
               <th title="How many more spokes of these sizes fit in the free space">Room for</th>
             </tr>
@@ -66,14 +67,14 @@ export function RegionOverview({
                     </button>
                   </td>
                   <td>
-                    {regionDisplayName(spec.location)} <code className="muted">{regionCode(spec.location)}</code>
+                    {regionName(cloud, spec.location)} <code className="muted">{regionShortCode(cloud, spec.location)}</code>
                   </td>
                   <td>
                     <CidrBadge cidr={r.cidr} />
                   </td>
                   <td>
                     {spec.hub.name}
-                    <span className="muted"> ({spec.topology === 'vwan' ? 'Virtual WAN' : 'hub VNet'})</span>
+                    <span className="muted"> ({cloud === 'aws' ? 'inspection VPC' : spec.topology === 'vwan' ? 'Virtual WAN' : 'hub VNet'})</span>
                   </td>
                   <td>
                     <CidrBadge cidr={r.hub.cidr} />
