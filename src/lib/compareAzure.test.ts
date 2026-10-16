@@ -36,12 +36,12 @@ describe('compareWithAzure', () => {
   it('finds nothing to report when Azure matches the plan', () => {
     const model = modelOf(defaultPlan());
     const { networks, counts } = compareWithAzure(model, JSON.stringify({ data: deployedAs(model) }));
-    expect(counts).toEqual({ different: 0, 'only-in-azure': 0, 'not-deployed': 0, same: 12 });
+    expect(counts).toEqual({ different: 0, 'only-deployed': 0, 'not-deployed': 0, same: 12 });
     expect(networks[0]).toMatchObject({
       status: 'same',
       matchedBy: 'name',
       planned: { name: 'hub-eus2-vnet', exportedName: 'hub-prd-eus2-01-vnet' },
-      deployed: { name: 'hub-prd-eus2-01-vnet', resourceGroup: 'network-prd-eus2-01-rg' },
+      deployed: { name: 'hub-prd-eus2-01-vnet', group: 'network-prd-eus2-01-rg' },
     });
   });
 
@@ -65,7 +65,7 @@ describe('compareWithAzure', () => {
     );
 
     const { networks, counts } = compareWithAzure(model, JSON.stringify(rows));
-    expect(counts).toEqual({ different: 1, 'only-in-azure': 2, 'not-deployed': 1, same: 10 });
+    expect(counts).toEqual({ different: 1, 'only-deployed': 2, 'not-deployed': 1, same: 10 });
     expect(networks[0]).toMatchObject({ status: 'different', planned: { name: 'hub-eus2-vnet' } });
     expect(networks[0].differences).toEqual([
       'Azure also has address range 10.0.250.0/24',
@@ -73,8 +73,8 @@ describe('compareWithAzure', () => {
       "Subnet AzureBastionSubnet (10.0.2.192/26) isn't in Azure",
       'Azure also has subnet legacy-snet (10.0.250.64/26)',
     ]);
-    expect(networks.filter((n) => n.status === 'only-in-azure')).toEqual([
-      expect.objectContaining({ deployed: expect.objectContaining({ name: 'clash-vnet', resourceGroup: 'rg-old' }), conflict: true, differences: ['Overlaps planned 10.0.5.0/24 (management-eus2-vnet)'] }),
+    expect(networks.filter((n) => n.status === 'only-deployed')).toEqual([
+      expect.objectContaining({ deployed: expect.objectContaining({ name: 'clash-vnet', group: 'rg-old' }), conflict: true, differences: ['Overlaps planned 10.0.5.0/24 (management-eus2-vnet)'] }),
       expect.objectContaining({ deployed: expect.objectContaining({ name: 'lab-vnet' }), conflict: false, differences: [] }),
     ]);
     expect(networks.find((n) => n.status === 'not-deployed')!.planned!.exportedName).toBe(dropped);

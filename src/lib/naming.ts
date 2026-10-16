@@ -103,7 +103,7 @@ export function normalizeNaming(options: NamingOptions): NamingOptions {
  * parse the same way.
  */
 export function parsePlannerName(name: string, location: string): { app: string; instance?: string } {
-  const types = ['vnet', 'vhub', 'snet', 'vwan'];
+  const types = ['vnet', 'vhub', 'snet', 'vwan', 'vpc'];
   const tokens = name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   if (tokens.length > 1 && types.includes(tokens.at(-1)!)) tokens.pop();
   else if (types.includes(tokens[0])) tokens.shift();

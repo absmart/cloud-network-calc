@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { importAzureNetwork } from '../lib/importAzure';
+import { importAwsNetwork } from '../lib/importAws';
 import { formatCidr } from '../lib/ipv4';
-import { type PlanSpec, computePlan, countIssues } from '../lib/planner';
+import { type Cloud, type PlanSpec, computePlan, countIssues } from '../lib/planner';
 import { AzureExportInput, LoadFileButton } from './AzureExportInput';
 
-const DEFAULT_NAME = 'Imported Azure network';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** Paste or load an export of an existing Azure network and open it as a new design. */
-export function ImportAzureDialog(props: { onImport: (plan: PlanSpec) => void; onClose: () => void }) {
+/** Import from Azure, or from AWS with cloud 'aws'. */
+export function ImportAzureDialog(props: { cloud?: Cloud; onImport: (plan: PlanSpec) => void; onClose: () => void }) {
+  const aws = props.cloud === 'aws';
+  const cloudName = aws ? 'AWS' : 'Azure';
+  const DEFAULT_NAME = 'Imported ' + cloudName + ' network';
   const { onClose } = props;
   const [input, setInput] = useState('');
   const [name, setName] = useState(DEFAULT_NAME);
@@ -22,12 +26,12 @@ export function ImportAzureDialog(props: { onImport: (plan: PlanSpec) => void; o
   const preview = useMemo(() => {
     if (!input.trim()) return null;
     try {
-      const imported = importAzureNetwork(input);
+      const imported = (aws ? importAwsNetwork : importAzureNetwork)(input);
       return { ...imported, result: computePlan(imported.plan) };
     } catch (e) {
       return { error: (e as Error).message };
     }
-  }, [input]);
+  }, [aws, input]);
 
   const counts = preview && 'result' in preview ? countIssues(preview.result) : null;
 
@@ -37,22 +41,22 @@ export function ImportAzureDialog(props: { onImport: (plan: PlanSpec) => void; o
         className="dialog import-azure"
         role="dialog"
         aria-modal="true"
-        aria-label="Import from Azure"
+        aria-label={'Import from ' + cloudName}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="row">
-          <h2>Import from Azure</h2>
+          <h2>Import from {cloudName}</h2>
           <button className="icon" title="Close" onClick={onClose}>
             ✕
           </button>
         </header>
         <p className="muted">
-          Bring an existing network into the planner to check it against Azure rules and plan what comes next. Run one of these
-          commands in Azure Cloud Shell or a signed-in terminal, then paste the output below or load it from a file. Nothing is sent
-          anywhere: the output is read in this browser.
+          Bring an existing network into the planner to check it against {cloudName} rules and plan what comes next. Run one of
+          these commands in {aws ? 'AWS CloudShell' : 'Azure Cloud Shell'} or a signed-in terminal, then paste the output below or
+          load it from a file. Nothing is sent anywhere: the output is read in this browser.
         </p>
 
-        <AzureExportInput value={input} onChange={setInput} />
+        <AzureExportInput value={input} onChange={setInput} cloud={props.cloud} />
 
         {preview && 'error' in preview && (
           <ul className="issues">
@@ -68,7 +72,7 @@ export function ImportAzureDialog(props: { onImport: (plan: PlanSpec) => void; o
                     <th>Region</th>
                     <th>Range</th>
                     <th>Hub</th>
-                    <th className="num">Spokes</th>
+                    <th className="num">{aws ? 'VPCs' : 'Spokes'}</th>
                     <th className="num">Issues</th>
                   </tr>
                 </thead>
@@ -84,7 +88,7 @@ export function ImportAzureDialog(props: { onImport: (plan: PlanSpec) => void; o
                         </td>
                         <td>
                           {region.hub.name} <code>{region.hub.fixed}</code>
-                          <span className="muted"> {region.topology === 'vwan' ? 'Virtual WAN hub' : 'hub VNet'}</span>
+                          <span className="muted"> {aws ? 'inspection VPC' : region.topology === 'vwan' ? 'Virtual WAN hub' : 'hub VNet'}</span>
                         </td>
                         <td className="num">{region.spokes.length}</td>
                         <td className={`num status ${errors ? 'error' : warnings ? 'warning' : 'ok'}`}>

@@ -46,7 +46,8 @@ export default function App() {
   const [view, setView] = useState<'design' | 'table'>('design');
   const [exporting, setExporting] = useState(false);
   const [showDesigns, setShowDesigns] = useState(false);
-  const [importingAzure, setImportingAzure] = useState(false);
+  // Which cloud's import dialog is open, if any.
+  const [importing, setImporting] = useState<Cloud | null>(null);
   const [comparingAzure, setComparingAzure] = useState(false);
   // A short confirmation shown at the bottom of the page.
   const [toast, setToast] = useState<string | null>(null);
@@ -117,7 +118,7 @@ export default function App() {
     replacePlan(imported);
     setActiveDesignId(design.id);
     setSelected(imported.regions[0]?.id ?? ALL);
-    setImportingAzure(false);
+    setImporting(null);
   };
 
   useEffect(() => {
@@ -270,7 +271,7 @@ export default function App() {
           <button
             className="primary"
             disabled={!CLOUDS[cloud].hasExport}
-            title={CLOUDS[cloud].hasExport ? undefined : `Export is Azure-only for now; ${CLOUDS[cloud].label} plans are for planning`}
+            title={CLOUDS[cloud].hasExport ? undefined : `Export isn't available for ${CLOUDS[cloud].label} plans`}
             onClick={() => setExporting(true)}
           >
             Export IaC
@@ -286,19 +287,23 @@ export default function App() {
               },
               {
                 label: 'Import from Azure…',
-                title: 'Load an existing Azure network from Azure CLI or PowerShell output',
-                onSelect: () => setImportingAzure(true),
+                title: 'Load an existing Azure network from Azure CLI or PowerShell output, as a new Azure design',
+                onSelect: () => setImporting('azure'),
               },
-              // Compare checks an Azure plan against Azure; import always opens a new Azure design.
-              ...(cloud === 'azure'
-                ? [
-                    {
-                      label: 'Compare with Azure…',
-                      title: 'Check this plan against what is deployed, from Azure CLI or PowerShell output',
-                      onSelect: () => setComparingAzure(true),
-                    },
-                  ]
-                : []),
+              {
+                label: 'Import from AWS…',
+                title: 'Load an existing AWS network from AWS CLI output, as a new AWS design',
+                onSelect: () => setImporting('aws'),
+              },
+              // Compare checks the plan against its own cloud; each import opens a new design in its cloud.
+              {
+                label: `Compare with ${CLOUDS[cloud].label}…`,
+                title:
+                  cloud === 'aws'
+                    ? 'Check this plan against what is deployed, from AWS CLI output'
+                    : 'Check this plan against what is deployed, from Azure CLI or PowerShell output',
+                onSelect: () => setComparingAzure(true),
+              },
               { label: 'Reset to the example plan', onSelect: reset, separated: true },
             ]}
           />
@@ -403,7 +408,7 @@ export default function App() {
         />
       )}
       {comparingAzure && <CompareAzureDialog plan={plan} result={result} onClose={() => setComparingAzure(false)} />}
-      {importingAzure && <ImportAzureDialog onImport={openImported} onClose={() => setImportingAzure(false)} />}
+      {importing && <ImportAzureDialog cloud={importing} onImport={openImported} onClose={() => setImporting(null)} />}
       {showDesigns && (
         <DesignsDialog
           plan={plan}

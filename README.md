@@ -88,7 +88,15 @@ An AWS plan uses the same planner — regions, excluded ranges, the visual edito
 - **Rules:** VPC CIDR blocks of /16 to /28, subnets of /28 or larger, 5 reserved addresses per subnet, no link-local, loopback or multicast ranges, the 5-CIDR-block default quota, and AWS's restriction on secondary CIDRs from a different RFC 1918 block than the primary (a 10.x VPC can't add 172.16–31.x or 192.168.x). Overlapping Docker's 172.17.0.0/16 is a warning. Additional address ranges are a VPC's **secondary CIDRs**.
 - **Regions:** the commercial AWS regions with short codes for names (`us-east-1` → `use1`) and their Availability Zones. New plans start in us-east-1 and us-west-2; the next region added is the latest region's usual disaster-recovery partner, else one in the same geography.
 
-Export, Import and Compare are Azure-only for now, so they're unavailable for AWS plans.
+**Export IaC** for an AWS plan generates **Terraform** (hashicorp/aws 6.x) or a **Terragrunt** stack (S3 state), as a zip:
+- `main.tf` has an `aws` provider per account (provider blocks can't come from a variable), each assuming `deployment_role_name` (for example `OrganizationAccountAccessRole` or `AWSControlTowerExecution`) in its account, or using your credentials as they are when it's null. aws 6.x sets the region on each resource, so one provider per account covers every region.
+- Generic modules, called per account: `modules/vpcs` (VPCs, secondary CIDRs, subnets in their Availability Zones, taken from the `-a`/`-b`/`-c` name suffix), `modules/transit` (a Transit Gateway per region, shared with other accounts through AWS RAM, and peerings between regions with a route for each region's block), and `modules/attachments` (each VPC's Transit Gateway attachment through its `tgw-*` subnets; the inspection VPC's with appliance mode).
+- **Accounts:** choose **One account** or **Landing Zone Accelerator** — a `network` account for the Transit Gateways and the inspection, egress and endpoints VPCs, plus one account per workload VPC — and set any VPC's account by hand. Accounts are short names the variables file maps to 12-digit IDs, or IDs themselves.
+- Firewalls, NAT gateways, internet gateways and VPC route tables aren't included.
+
+**⋯ → Import from AWS** reads the output of a command run in AWS CloudShell (bash) or PowerShell that lists VPCs, subnets, Transit Gateways and their attachments in every region of an account (run it per account and paste the outputs together), or plain `aws ec2 describe-*` output for one region. Default VPCs are skipped. Each region's hub is the VPC whose Transit Gateway attachment uses appliance mode, else one with firewall subnets or "inspection" in its name. Everything is pinned where it is, and each VPC keeps its account as its placement.
+
+**⋯ → Compare with AWS** checks an AWS plan against the same AWS CLI output. VPCs are matched by the Name tag the export gives them or their planner name, then by overlapping CIDR blocks in the same region, and Transit Gateways by name, then by region. It reports a different region, account (when the plan names a 12-digit account ID), CIDR blocks, subnets (CIDR and Availability Zone), and Transit Gateway attachments, plus VPCs and Transit Gateways that are only in the plan or only in AWS.
 
 ## Share link
 

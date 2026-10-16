@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { awsZipRoot, buildAwsModel, generateAwsFiles } from '../lib/awsIac';
+import { cloudOf } from '../lib/cloud';
 import { type IacFormat, buildIacModel, generateIacFiles, zipRoot } from '../lib/iac';
 import { PlacementPanel } from './PlacementPanel';
 import { DEFAULT_NAMING, type NamingOptions } from '../lib/naming';
@@ -11,31 +13,49 @@ const FORMAT_LABEL: Record<IacFormat, string> = { bicep: 'Bicep', terraform: 'Te
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
-/** Shows the plan as Bicep, Terraform or Terragrunt, ready to copy or download. */
+/** Shows the plan as Bicep, Terraform or Terragrunt (Terraform or Terragrunt for AWS), ready to copy or download. */
 export function ExportDialog(props: {
   plan: PlanSpec;
   result: PlanResult;
-  /** Saves placement choices (subscriptions and resource groups) back into the plan. */
+  /** Saves placement choices (subscriptions, resource groups, accounts) back into the plan. */
   onPlanChange: (plan: PlanSpec) => void;
   onClose: () => void;
 }) {
-  const [format, setFormat] = useState<IacFormat>('bicep');
+  const aws = cloudOf(props.plan) === 'aws';
+  const formats: IacFormat[] = aws ? ['terraform', 'terragrunt'] : ['bicep', 'terraform', 'terragrunt'];
+  const [format, setFormat] = useState<IacFormat>(formats[0]);
   const [naming, setNaming] = useState<NamingOptions>(loadNaming);
   const [copied, setCopied] = useState(false);
   const [fileIndex, setFileIndex] = useState(0);
   const files = useMemo(
-    () => generateIacFiles(format, props.plan, props.result, naming),
-    [format, props.plan, props.result, naming],
+    () => (aws ? generateAwsFiles : generateIacFiles)(format, props.plan, props.result, naming),
+    [aws, format, props.plan, props.result, naming],
   );
   const file = files[fileIndex] ?? files[0];
-  // Bicep's modules and Terragrunt's stack live in folders, so they download together as a zip.
+  // Modules and Terragrunt stacks live in folders, so they download together as a zip.
   const inFolders = files.some((f) => f.name.includes('/'));
-  const root = zipRoot(format);
+  const root = aws ? awsZipRoot(format) : zipRoot(format);
   const zip = () => createZip(files.map((f) => ({ name: `${root}/${f.name}`, content: f.content })));
-  const model = useMemo(() => buildIacModel(props.plan, props.result, naming), [props.plan, props.result, naming]);
-  const example = [model.vnets[0]?.name, model.vnets[0]?.subnets.find((s) => s.name.endsWith('-snet'))?.name, model.resourceGroups[0]?.name]
-    .filter(Boolean)
-    .join(', ');
+
+  // Counts and an example name for the dialog text.
+  const summary = useMemo(() => {
+    if (aws) {
+      const m = buildAwsModel(props.plan, props.result, naming);
+      return {
+        placements: m.accounts.length,
+        groups: 0,
+        example: [m.vpcs[0]?.name, m.vpcs[0]?.subnets[0]?.name, m.transitGateways[0]?.name].filter(Boolean).join(', '),
+      };
+    }
+    const m = buildIacModel(props.plan, props.result, naming);
+    return {
+      placements: m.subscriptions.length,
+      groups: m.resourceGroups.length,
+      example: [m.vnets[0]?.name, m.vnets[0]?.subnets.find((s) => s.name.endsWith('-snet'))?.name, m.resourceGroups[0]?.name]
+        .filter(Boolean)
+        .join(', '),
+    };
+  }, [aws, props.plan, props.result, naming]);
 
   useEffect(() => {
     writeJson(STORAGE_KEYS.naming, naming);
@@ -65,7 +85,7 @@ export function ExportDialog(props: {
         <header className="row">
           <h2>Export infrastructure as code</h2>
           <div className="tabs">
-            {(Object.keys(FORMAT_LABEL) as IacFormat[]).map((f) => (
+            {formats.map((f) => (
               <button
                 key={f}
                 className={format === f ? 'active' : ''}
@@ -82,23 +102,42 @@ export function ExportDialog(props: {
             ✕
           </button>
         </header>
-        <p className="muted">
-          Covers every region, VNet, subnet and peering in the current plan
-          {props.plan.regions.some((r) => r.topology === 'vwan') ? ', plus the Virtual WAN and its hubs' : ''}.
-          Hub &amp; spoke hubs are peered with their spokes and with each other. The template is generic, with every input a
-          parameter or variable; this plan's values go in the variables file, so the same template can be reused for other plans
-          and environments. One deployment covers every subscription:{' '}
-          {format === 'bicep'
-            ? 'Bicep deploys at a management group above them, with modules per subscription and resource group, and downloads as a .zip.'
-            : 'Terraform (azurerm) has a provider alias per subscription in main.tf, calling generic modules, and downloads as a .zip.'}
-          {format === 'terragrunt' &&
-            ' Terragrunt adds a root.hcl for remote state and the provider, with this plan as the inputs of live/<env>/alz-network; it downloads as a .zip that keeps the folders.'}
-        </p>
+        {aws ? (
+          <p className="muted">
+            Covers every region, VPC, secondary CIDR and subnet (in its Availability Zone), a Transit Gateway per region with
+            each VPC attached through its tgw-* subnets, and peering between the regions' Transit Gateways with routes for each
+            region's block. The modules are generic and this plan's values go in the variables file. main.tf has an aws provider
+            (6.x) per account, assuming the role you name in each, and Transit Gateways are shared with other accounts through AWS
+            RAM. Firewalls, NAT gateways and VPC route tables aren't included.
+            {format === 'terragrunt' &&
+              ' Terragrunt adds a root.hcl for S3 remote state, with this plan as the inputs of live/<env>/aws-network.'}{' '}
+            It downloads as a .zip.
+          </p>
+        ) : (
+          <p className="muted">
+            Covers every region, VNet, subnet and peering in the current plan
+            {props.plan.regions.some((r) => r.topology === 'vwan') ? ', plus the Virtual WAN and its hubs' : ''}. Hub &amp; spoke
+            hubs are peered with their spokes and with each other. The template is generic, with every input a parameter or
+            variable; this plan's values go in the variables file, so the same template can be reused for other plans and
+            environments. One deployment covers every subscription:{' '}
+            {format === 'bicep'
+              ? 'Bicep deploys at a management group above them, with modules per subscription and resource group, and downloads as a .zip.'
+              : 'Terraform (azurerm) has a provider alias per subscription in main.tf, calling generic modules, and downloads as a .zip.'}
+            {format === 'terragrunt' &&
+              ' Terragrunt adds a root.hcl for remote state and the provider, with this plan as the inputs of live/<env>/alz-network; it downloads as a .zip that keeps the folders.'}
+          </p>
+        )}
         <div className="row naming">
           <span className="muted">
             Names: <code>&lt;app&gt;-&lt;environment&gt;-&lt;region&gt;-&lt;int&gt;-&lt;type&gt;</code>
           </span>
-          <label title="App used for the resource group and Virtual WAN; VNets and subnets take their app from their own name">
+          <label
+            title={
+              aws
+                ? 'App used for the Transit Gateways; VPCs and subnets take their app from their own name'
+                : 'App used for the resource group and Virtual WAN; VNets and subnets take their app from their own name'
+            }
+          >
             Shared app
             <input value={naming.app} onChange={(e) => setNaming({ ...naming, app: e.target.value })} />
           </label>
@@ -106,20 +145,21 @@ export function ExportDialog(props: {
             Environment
             <input value={naming.environment} onChange={(e) => setNaming({ ...naming, environment: e.target.value })} />
           </label>
-          <label title="Used unless a VNet's name already carries a number, like corp-eus2-001-vnet">
+          <label title="Used unless a network's name already carries a number, like corp-eus2-001-vnet">
             Instance
             <input value={naming.instance} onChange={(e) => setNaming({ ...naming, instance: e.target.value })} />
           </label>
           <button onClick={() => setNaming(DEFAULT_NAMING)}>Defaults</button>
         </div>
         <p className="muted">
-          For example: <code>{example}</code>. Azure-required subnet names such as GatewaySubnet are kept.
+          For example: <code>{summary.example}</code>.{' '}
+          {aws ? 'Names are Name tags; AWS gives each resource its own ID.' : 'Azure-required subnet names such as GatewaySubnet are kept.'}
         </p>
         <PlacementPanel
           plan={props.plan}
           naming={naming}
-          subscriptionCount={model.subscriptions.length}
-          resourceGroupCount={model.resourceGroups.length}
+          subscriptionCount={summary.placements}
+          resourceGroupCount={summary.groups}
           onChange={props.onPlanChange}
         />
         {errors > 0 && (
