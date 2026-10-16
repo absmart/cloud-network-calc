@@ -7,6 +7,7 @@ import {
   parseBackup,
   toBackup,
 } from '../lib/designs';
+import { CLOUDS, cloudOf } from '../lib/cloud';
 import { downloadFile } from '../lib/download';
 import type { NamingOptions } from '../lib/naming';
 import type { PlanSpec } from '../lib/planner';
@@ -118,6 +119,7 @@ export function DesignsDialog(props: {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Cloud</th>
                   <th>Root</th>
                   <th className="num">Regions</th>
                   <th>Saved</th>
@@ -136,6 +138,7 @@ export function DesignsDialog(props: {
                       />
                       {d.id === props.activeId && <span className="chip">open</span>}
                     </td>
+                    <td>{CLOUDS[cloudOf(d.plan)].label}</td>
                     <td>
                       <code>{d.plan.root}</code>
                     </td>

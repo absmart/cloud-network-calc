@@ -1,17 +1,10 @@
 import type { CSSProperties } from 'react';
-import {
-  SPOKE_TEMPLATES,
-  type SpokeTemplate,
-  isPlatformVnet,
-  platformLayoutOf,
-  relocateRegion,
-  setPlatformLayout,
-  setTopology,
-} from '../lib/defaults';
+import { isKnownRegion, partnerRegion, regionName, regionsByGeography, relocate, spokeTemplates } from '../lib/cloud';
+import { isPlatformVnet, platformLayoutOf, setPlatformLayout, setTopology } from '../lib/defaults';
 import { type Blocked, type Cidr, availableBlocks, blockSize, formatCidr, parseCidr } from '../lib/ipv4';
-import { findRegion, regionsByGeography } from '../lib/regions';
 import type { PlatformLayout, RegionResult, RegionSpec, Topology, VnetSpec } from '../lib/planner';
 import { AllocationBar, Issues, PrefixSelect, type Segment, excludedSegments } from './common';
+import { useCloud } from './cloudContext';
 import { VnetCard } from './VnetCard';
 
 export function RegionCard(props: {
@@ -54,13 +47,15 @@ export function RegionCard(props: {
     onChange({ ...spec, prefix, fixed: formatCidr({ base: pin.cidr.base - (pin.cidr.base % size), prefix }) });
   };
 
+  const cloud = useCloud();
+  const templates = spokeTemplates(cloud);
   const platformLayout = platformLayoutOf(spec);
   const updateSpoke = (index: number, vnet: VnetSpec) =>
     onChange({ ...spec, spokes: spec.spokes.map((s, i) => (i === index ? vnet : s)) });
 
   const vnetResults = [result.hub, ...result.spokes];
-  const pairedLocation = findRegion(spec.location)?.paired;
-  const paired = pairedLocation ? findRegion(pairedLocation) : undefined;
+  const partner = partnerRegion(cloud, spec.location);
+  const azure = cloud === 'azure';
 
   return (
     <article className="region" id={`region-${spec.id}`} style={{ '--region-color': props.color } as CSSProperties}>
@@ -92,7 +87,8 @@ export function RegionCard(props: {
             )}
           </span>
           <span className="region-meta">
-            {spec.hub.name} · {spec.spokes.length} spokes · platform {platformLayout === 'hub' ? 'in hub' : platformLayout}
+            {spec.hub.name} · {spec.spokes.length} {azure ? 'spokes' : 'VPCs attached to the Transit Gateway'}
+            {azure && ` · platform ${platformLayout === 'hub' ? 'in hub' : platformLayout}`}
           </span>
           <button className="icon" title="Remove region" onClick={props.onRemove}>
             ✕
@@ -101,9 +97,9 @@ export function RegionCard(props: {
         <div className="row">
           <label>
             Location
-            <select value={spec.location} onChange={(e) => onChange(relocateRegion(spec, e.target.value))}>
-              {!findRegion(spec.location) && <option value={spec.location}>{spec.location}</option>}
-              {regionsByGeography().map(([geography, regions]) => (
+            <select value={spec.location} onChange={(e) => onChange(relocate(cloud, spec, e.target.value))}>
+              {!isKnownRegion(cloud, spec.location) && <option value={spec.location}>{spec.location}</option>}
+              {regionsByGeography(cloud).map(([geography, regions]) => (
                 <optgroup key={geography} label={geography}>
                   {regions.map((r) => {
                     const usedBy = props.usedLocations.get(r.location);
@@ -118,10 +114,17 @@ export function RegionCard(props: {
               ))}
             </select>
           </label>
-          {paired && (
-            <span className="muted" title="Azure paired region, commonly used as the secondary ALZ region">
-              Pair: {paired.displayName}
-              {props.usedLocations.has(paired.location) ? ' ✓' : ''}
+          {partner && (
+            <span
+              className="muted"
+              title={
+                azure
+                  ? 'Azure paired region, commonly used as the secondary ALZ region'
+                  : 'A usual disaster-recovery partner region (AWS has no region pairs)'
+              }
+            >
+              {azure ? 'Pair' : 'DR partner'}: {regionName(cloud, partner)}
+              {props.usedLocations.has(partner) ? ' ✓' : ''}
             </span>
           )}
           <label>
@@ -145,6 +148,7 @@ export function RegionCard(props: {
               ))}
             </select>
           </label>
+          {azure && (
           <label>
             Topology
             <select value={spec.topology} onChange={(e) => onChange(setTopology(spec, e.target.value as Topology))}>
@@ -152,6 +156,8 @@ export function RegionCard(props: {
               <option value="vwan">Virtual WAN</option>
             </select>
           </label>
+          )}
+          {azure && (
           <label title="Separate identity, management and security VNets, one shared platform VNet, or platform subnets in the hub VNet. Switching replaces the platform VNets and hub platform subnets; landing zones are kept.">
             Platform networks
             <select
@@ -165,6 +171,7 @@ export function RegionCard(props: {
               </option>
             </select>
           </label>
+          )}
         </div>
       </header>
       <Issues issues={result.issues} />
@@ -186,6 +193,7 @@ export function RegionCard(props: {
         spec={spec.hub}
         result={result.hub}
         minPrefix={regionPrefix}
+        location={spec.location}
         onChange={(hub) => onChange({ ...spec, hub })}
       />
       {spec.spokes.map((spoke, i) => (
@@ -194,6 +202,7 @@ export function RegionCard(props: {
           spec={spoke}
           result={result.spokes[i]}
           minPrefix={regionPrefix}
+          location={spec.location}
           onChange={(v) => updateSpoke(i, v)}
           onRemove={() => onChange({ ...spec, spokes: spec.spokes.filter((_, j) => j !== i) })}
         />
@@ -204,14 +213,14 @@ export function RegionCard(props: {
           className="add"
           value=""
           onChange={(e) => {
-            const t = e.target.value as SpokeTemplate | '';
-            if (t) onChange({ ...spec, spokes: [...spec.spokes, SPOKE_TEMPLATES[t].make(spec.location)] });
+            const t = templates.find((x) => x.key === e.target.value);
+            if (t) onChange({ ...spec, spokes: [...spec.spokes, t.make(spec.location)] });
           }}
         >
-          <option value="">+ Add spoke…</option>
-          {(Object.keys(SPOKE_TEMPLATES) as SpokeTemplate[]).map((t) => (
-            <option key={t} value={t}>
-              {SPOKE_TEMPLATES[t].label}
+          <option value="">{azure ? '+ Add spoke…' : '+ Add VPC…'}</option>
+          {templates.map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.label}
             </option>
           ))}
         </select>

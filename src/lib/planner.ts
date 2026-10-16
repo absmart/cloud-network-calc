@@ -10,6 +10,7 @@ import {
   contains,
   formatCidr,
   freeBlocks,
+  overlaps,
   parseCidr,
 } from './ipv4';
 import {
@@ -22,6 +23,14 @@ import {
   presetForName,
 } from './azure';
 import { prefixForHosts, usableAddresses } from './sizing';
+import {
+  AWS_DEFAULT_CIDR_BLOCKS,
+  AWS_LARGEST_PREFIX,
+  AWS_SMALLEST_PREFIX,
+  DOCKER_BRIDGE,
+  awsForbiddenOverlap,
+  awsSecondaryCidrError,
+} from './aws';
 
 export type Topology = 'hub-spoke' | 'vwan';
 
@@ -63,7 +72,15 @@ export interface RangeSpec {
 }
 
 /** What a spoke is for. Platform roles are swapped when the region's platform layout changes. */
-export type VnetRole = 'platform' | 'identity' | 'management' | 'security' | 'landing-zone';
+export type VnetRole =
+  | 'platform'
+  | 'identity'
+  | 'management'
+  | 'security'
+  // AWS: the central egress VPC and the shared interface endpoints VPC.
+  | 'egress'
+  | 'endpoints'
+  | 'landing-zone';
 
 /**
  * Platform landing zones as separate identity/management/security VNets, one
@@ -111,8 +128,13 @@ export interface ExcludedRange {
   label?: string;
 }
 
+/** The cloud a plan is for. Plans saved before AWS support have none, and are Azure. */
+export type Cloud = 'azure' | 'aws';
+
 export interface PlanSpec {
   version: 1;
+  /** Missing means 'azure'. */
+  cloud?: Cloud;
   name: string;
   root: string;
   regions: RegionSpec[];
@@ -220,6 +242,7 @@ function parseExcluded(list: ExcludedRange[], issues: Issue[]): Blocked[] {
 }
 
 export function computePlan(plan: PlanSpec): PlanResult {
+  const cloud = plan.cloud ?? 'azure';
   const issues: Issue[] = [];
   let root: Cidr | null = null;
   const parsed = parseCidr(plan.root);
@@ -227,7 +250,7 @@ export function computePlan(plan: PlanSpec): PlanResult {
     issues.push(error(`Root range: ${parsed.error}`));
   } else {
     root = parsed.cidr;
-    const forbidden = forbiddenOverlap(root);
+    const forbidden = cloud === 'aws' ? awsForbiddenOverlap(root) : forbiddenOverlap(root);
     if (forbidden) issues.push(error(`Root range overlaps reserved ${forbidden} space`));
     else if (!isPrivate(root))
       issues.push(warning('Root range is not private (RFC 1918 / RFC 6598) address space'));
@@ -238,7 +261,7 @@ export function computePlan(plan: PlanSpec): PlanResult {
   const excluded = parseExcluded(plan.excluded ?? [], issues);
   const allocs = root ? allocate(root, requests, excluded, { mayEnclose: true }) : null;
   const regions = plan.regions.map((r, i) =>
-    computeRegion(r, take(allocs?.[i], regionIssues[i]), regionIssues[i], excluded),
+    computeRegion(r, take(allocs?.[i], regionIssues[i]), regionIssues[i], excluded, cloud),
   );
 
   if (root && regions.some((r) => !r.cidr)) {
@@ -266,10 +289,16 @@ export function computePlan(plan: PlanSpec): PlanResult {
   return { root, issues, regions, free: root ? freeBlocks(root, taken) : [], excluded };
 }
 
-function computeRegion(spec: RegionSpec, cidr: Cidr | null, issues: Issue[], excluded: Blocked[]): RegionResult {
+function computeRegion(
+  spec: RegionSpec,
+  cidr: Cidr | null,
+  issues: Issue[],
+  excluded: Blocked[],
+  cloud: Cloud,
+): RegionResult {
   const vnets = [spec.hub, ...spec.spokes];
   const vnetIssues = vnets.map((): Issue[] => []);
-  const kinds = vnets.map((_, i): VnetKind => (i > 0 ? 'spoke' : spec.topology === 'vwan' ? 'virtual-hub' : 'hub'));
+  const kinds = vnets.map((_, i): VnetKind => (i > 0 ? 'spoke' : spec.topology === 'vwan' && cloud === 'azure' ? 'virtual-hub' : 'hub'));
   const requests = vnets.map((v, i) => toRequest(v.prefix, v.fixed, vnetIssues[i]));
   // Extra address ranges come after every main range, so adding one never moves a VNet.
   const extras = vnets.flatMap((v, i) =>
@@ -288,7 +317,7 @@ function computeRegion(spec: RegionSpec, cidr: Cidr | null, issues: Issue[], exc
   });
   const results = vnets.map((v, i) => {
     const ranges = extras.flatMap((e, j) => (e.vnet === i ? [extraCidrs[j]] : []));
-    return computeVnet(v, kinds[i], requests[i].prefix, take(allocs?.[i], vnetIssues[i]), ranges, vnetIssues[i]);
+    return computeVnet(v, kinds[i], requests[i].prefix, take(allocs?.[i], vnetIssues[i]), ranges, vnetIssues[i], cloud);
   });
 
   const used = results.flatMap((v) => v.ranges.filter((c): c is Cidr => c !== null));
@@ -340,6 +369,26 @@ function allocateSubnets(spec: VnetSpec, ranges: (Cidr | null)[], requests: Allo
   return out;
 }
 
+/** AWS limits on a VPC's CIDR blocks: /16 to /28 each, how many, and which secondary ranges fit the primary. */
+function awsVpcIssues(prefix: number, ranges: (Cidr | null)[]): Issue[] {
+  const out: Issue[] = [];
+  const sizes = [prefix, ...ranges.slice(1).flatMap((r) => (r ? [r.prefix] : []))];
+  if (sizes.some((p) => p < AWS_LARGEST_PREFIX))
+    out.push(error(`AWS VPC CIDR blocks can be at most a /${AWS_LARGEST_PREFIX}; add secondary CIDRs for more space`));
+  if (sizes.some((p) => p > AWS_SMALLEST_PREFIX)) out.push(error(`AWS VPC CIDR blocks must be /${AWS_SMALLEST_PREFIX} or larger`));
+  if (ranges.length > AWS_DEFAULT_CIDR_BLOCKS)
+    out.push(warning(`A VPC has ${AWS_DEFAULT_CIDR_BLOCKS} CIDR blocks by default; ${ranges.length} needs a quota increase`));
+  const [primary, ...secondary] = ranges;
+  if (primary)
+    for (const s of secondary) {
+      const problem = s && awsSecondaryCidrError(primary, s);
+      if (problem) out.push(error(problem));
+    }
+  if (ranges.some((r) => r && overlaps(r, DOCKER_BRIDGE)))
+    out.push(warning(`Overlaps ${formatCidr(DOCKER_BRIDGE)}, Docker's default bridge network, which some AWS services use`));
+  return out;
+}
+
 function computeVnet(
   spec: VnetSpec,
   kind: VnetKind,
@@ -347,9 +396,13 @@ function computeVnet(
   cidr: Cidr | null,
   extraRanges: (Cidr | null)[],
   issues: Issue[],
+  cloud: Cloud,
 ): VnetResult {
   const ranges = [cidr, ...extraRanges];
   const base = { id: spec.id, name: spec.name, cidr, ranges, issues, kind };
+  const network = cloud === 'aws' ? 'VPC' : 'VNet';
+  const smallestSubnet = cloud === 'aws' ? AWS_SMALLEST_PREFIX : SMALLEST_SUBNET_PREFIX;
+  if (cloud === 'aws') issues.push(...awsVpcIssues(prefix, ranges));
 
   if (kind === 'virtual-hub') {
     if (prefix > VWAN_HUB_MIN_PREFIX)
@@ -373,17 +426,18 @@ function computeVnet(
     const p = requests[i].prefix;
     if (!s.name.trim()) own.push(error('Subnet needs a name'));
     else if ((nameCounts.get(s.name.trim().toLowerCase()) ?? 0) > 1)
-      own.push(error(`Duplicate subnet name "${s.name}" in this VNet`));
-    if (p > SMALLEST_SUBNET_PREFIX)
-      own.push(error(`Azure subnets must be /${SMALLEST_SUBNET_PREFIX} or larger`));
+      own.push(error(`Duplicate subnet name "${s.name}" in this ${network}`));
+    if (p > smallestSubnet)
+      own.push(error(`${cloud === 'aws' ? 'AWS' : 'Azure'} subnets must be /${smallestSubnet} or larger`));
     if (s.hosts && usableAddresses(p) < s.hosts)
       own.push(
         warning(
-          `Needs ${s.hosts} hosts, but a /${p} has ${usableAddresses(p)} usable addresses; a /${prefixForHosts(s.hosts)} fits`,
+          `Needs ${s.hosts} hosts, but a /${p} has ${usableAddresses(p)} usable addresses; a /${prefixForHosts(s.hosts, cloud)} fits`,
         ),
       );
 
-    const preset = presetForName(s.name);
+    // Azure's reserved subnet names and their sizes don't apply to AWS.
+    const preset = cloud === 'azure' ? presetForName(s.name) : undefined;
     if (preset) {
       if (s.name !== preset.name) own.push(error(`Azure requires the exact name "${preset.name}"`));
       if (p > preset.minPrefix) own.push(error(`${preset.name} must be /${preset.minPrefix} or larger`));

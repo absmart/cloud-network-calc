@@ -2,6 +2,8 @@ import { type CSSProperties, useState } from 'react';
 import { AZURE_RESERVED_IPS } from '../lib/azure';
 import { type Cidr, blockSize, endOf, formatCidr, formatIp } from '../lib/ipv4';
 import type { PlanResult } from '../lib/planner';
+import { CLOUDS } from '../lib/cloud';
+import { useCloud } from './cloudContext';
 import { regionColor } from './common';
 
 interface Row {
@@ -35,12 +37,13 @@ function flatten(result: PlanResult): Row[] {
 const usable = (row: Row) =>
   row.cidr && row.level === 'Subnet' ? Math.max(0, blockSize(row.cidr.prefix) - AZURE_RESERVED_IPS) : null;
 
-function toCsv(rows: Row[]): string {
-  const header = ['Level', 'Region', 'VNet', 'Name', 'CIDR', 'First', 'Last', 'Addresses', 'Usable'];
+/** CSV of the rows; `network` is what the cloud calls a virtual network (VNet or VPC). */
+function toCsv(rows: Row[], network: string): string {
+  const header = ['Level', 'Region', network, 'Name', 'CIDR', 'First', 'Last', 'Addresses', 'Usable'];
   const quote = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const lines = rows.map((r) =>
     [
-      r.level,
+      r.level === 'VNet' ? network : r.level,
       r.region,
       r.vnet,
       r.name,
@@ -57,12 +60,13 @@ function toCsv(rows: Row[]): string {
 }
 
 export function SummaryTable({ result }: { result: PlanResult }) {
+  const network = CLOUDS[useCloud()].network;
   const rows = flatten(result);
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(toCsv(rows));
+      await navigator.clipboard.writeText(toCsv(rows, network));
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {

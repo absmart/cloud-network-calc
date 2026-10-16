@@ -13,7 +13,7 @@ const c = (s: string) => {
 describe('sizing', () => {
   it('sizes a subnet for a number of hosts, counting the 5 reserved addresses', () => {
     expect(usableAddresses(24)).toBe(251);
-    expect([0, 3, 4, 11, 12, 59, 60, 251, 252, 1000].map(prefixForHosts)).toEqual([29, 29, 28, 28, 27, 26, 25, 24, 23, 22]);
+    expect([0, 3, 4, 11, 12, 59, 60, 251, 252, 1000].map((hosts) => prefixForHosts(hosts))).toEqual([29, 29, 28, 28, 27, 26, 25, 24, 23, 22]);
   });
 
   it('finds the smallest block that holds a set of blocks', () => {
