@@ -2,6 +2,11 @@
 
 User-visible changes to the ALZ CIDR Planner, newest first. Dates are when the change was made (US Central time). Since 14 October 2026, every change reaches production through a pull request.
 
+## 2026-11-11: PR [#8](https://github.com/absmart/cloud-network-calc/pull/8)
+
+### Added
+- **API and MCP server.** Other apps and agents can now create, check, import, export and compare designs through an HTTP API under `/api` (documented at `/api/docs` and `/api/openapi.json`) and an MCP server at `/api/mcp`. Nothing is stored and there is no sign-in: every call carries its design. Calls that create or change a design return a link that opens it in the app. To give a design to an agent, use the app's share link or an exported design.
+
 ## 2026-11-10: PR [#7](https://github.com/absmart/cloud-network-calc/pull/7)
 
 ### Changed

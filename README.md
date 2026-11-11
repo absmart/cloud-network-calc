@@ -124,6 +124,40 @@ How the network is turned into a plan:
 - Everything is pinned where it is: region ranges (a /16 where that doesn't take in another region's VNets, otherwise the smallest range covering the region), VNets and subnet positions. The root range is the smallest range covering all regions. Overlaps and rule breaks in the real network show up as the planner's usual errors.
 - A VNet with several address ranges keeps them all: the first one Azure lists is its main range and the others are extra ranges, each holding its own subnets. Imported spokes are landing zones, so changing a region's platform layout never replaces them.
 
+## API and MCP server
+
+Other apps and agents can work with designs through an HTTP API under `/api` and an MCP server at `/api/mcp` on the same site (for example `https://ambitious-sea-0d5e2730f.5.azurestaticapps.net/api/mcp`). Like the app, it stores nothing. Every call carries the design it works on and gets the result back, and nothing is kept on the server. There is no sign-in, so anyone who can reach the site can call it.
+
+A design is JSON: `{ "plan": { … }, "naming": { … } }`, the same plan the app saves (`GET /api/design-format` explains it, and ids are optional). Any call that takes a design also accepts a bare plan, a design exported from the **Designs** dialog, or a share link.
+
+Designs move between an agent and the app as links:
+- **Into the app.** Calls that create or change a design return `link`. Opening it shows the usual shared-design prompt and loads the design.
+- **Out of the app.** Copy the share link (**⋯ → Copy share link**) or export the design, and give it to the agent.
+
+| MCP tool | HTTP | What it does |
+| --- | --- | --- |
+| `design_format` | `GET /api/design-format` | Explains the design format |
+| `new_design` | `POST /api/designs/new` | The app's starting design for Azure or AWS |
+| `check_design` | `POST /api/designs/check` | Allocates and validates: every CIDR, free space, placement, errors and warnings |
+| `export_design` | `POST /api/designs/export?format=bicep\|terraform\|terragrunt` | The IaC files (`&zip=true` for the zip the app downloads) |
+| `design_link` | `POST /api/designs/link` | A link that opens the design in the app |
+| `read_design` | `POST /api/designs/read` | Reads a share link or exported design into JSON |
+| `add_region` | `POST /api/designs/add-region` | Adds a region, at a location or the next unused one |
+| `add_spoke` | `POST /api/designs/add-spoke` | Adds a spoke from a template |
+| `import_commands` | `GET /api/import-commands?cloud=` | The CLI commands whose output import and compare read |
+| `import_network` | `POST /api/import?cloud=azure\|aws` | Builds a design from that CLI output (sent as the body) |
+| `compare_design` | `POST /api/designs/compare` | Compares a design with that CLI output (`{ design, deployed }`) |
+| `list_regions` | `GET /api/regions?cloud=` | The cloud's regions |
+| `list_spoke_templates` | `GET /api/spoke-templates?cloud=` | Templates for `add_spoke` |
+
+`GET /api/docs` is a readable page of all of this, and `GET /api/openapi.json` describes the HTTP API for tools such as Postman or an agent's OpenAPI importer. The MCP server uses Streamable HTTP without sessions and answers with JSON. To add it to Claude Code:
+
+```bash
+claude mcp add --transport http cloud-network-planner https://ambitious-sea-0d5e2730f.5.azurestaticapps.net/api/mcp
+```
+
+The API runs as the Static Web App's managed functions. `npm run dev` serves it at `http://localhost:5173/api` too.
+
 ## Run
 
 Requires Node.js 18 or later.
@@ -132,7 +166,7 @@ Requires Node.js 18 or later.
 npm install
 npm run dev      # http://localhost:5173
 npm test         # unit tests for the allocator and the Azure rules
-npm run build    # production build in dist/
+npm run build    # production build: the app in dist/, the API in dist-api/
 ```
 
 ## Layout
@@ -141,4 +175,5 @@ npm run build    # production build in dist/
 - `src/lib/azure.ts`: Azure-specific limits and subnet presets
 - `src/lib/planner.ts`: the plan model; computes the allocation and the validation issues
 - `src/lib/defaults.ts`: the default plan and the hub and spoke templates
+- `src/lib/api.ts`, `apiHttp.ts`, `mcp.ts`: the API's operations, its HTTP routes and the MCP server; `api/index.ts` hosts them in Azure Functions
 - `src/components/`: the React UI
