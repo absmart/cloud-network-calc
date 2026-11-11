@@ -172,6 +172,11 @@ describe('HTTP API', () => {
     expect(doc.servers[0].url).toBe(`${APP}api`);
     expect(Object.keys(doc.paths)).toContain('/designs/export');
     expect(bodyOf(await handleApiRequest(request('GET', '/'))).mcp).toBe(`${APP}api/mcp`);
+    const page = await handleApiRequest(request('GET', '/docs'));
+    expect(page.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(page.body).toContain(`${APP}api/mcp`);
+    expect(page.body).toContain('<code>POST /api/designs/export</code>');
+    expect(page.body).toContain('<code>add_spoke</code>');
   });
 
   it('finds the app address behind Static Web Apps or a proxy', () => {

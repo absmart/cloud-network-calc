@@ -30,6 +30,8 @@ export function openApiDocument(appUrl: string) {
     },
     servers: [{ url: `${appUrl}api` }],
     paths: {
+      '/docs': { get: { summary: 'This documentation as a web page', responses: { '200': { description: 'HTML', content: { 'text/html': {} } } } } },
+      '/openapi.json': { get: { summary: 'This OpenAPI document', responses: { '200': ok({ type: 'object' }) } } },
       '/design-format': {
         get: { summary: 'The design format, explained', responses: { '200': { description: 'Markdown', content: { 'text/markdown': {} } } } },
       },

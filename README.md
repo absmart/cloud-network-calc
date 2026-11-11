@@ -150,7 +150,7 @@ Designs move between an agent and the app as links:
 | `list_regions` | `GET /api/regions?cloud=` | The cloud's regions |
 | `list_spoke_templates` | `GET /api/spoke-templates?cloud=` | Templates for `add_spoke` |
 
-`GET /api/openapi.json` describes the HTTP API. The MCP server uses Streamable HTTP without sessions and answers with JSON. To add it to Claude Code:
+`GET /api/docs` is a readable page of all of this, and `GET /api/openapi.json` describes the HTTP API for tools such as Postman or an agent's OpenAPI importer. The MCP server uses Streamable HTTP without sessions and answers with JSON. To add it to Claude Code:
 
 ```bash
 claude mcp add --transport http cloud-network-planner https://ambitious-sea-0d5e2730f.5.azurestaticapps.net/api/mcp

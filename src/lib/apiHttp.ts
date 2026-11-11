@@ -20,6 +20,7 @@ import {
   spokeTemplateKeys,
 } from './api';
 import { DESIGN_FORMAT } from './apiDocs';
+import { apiDocsPage } from './apiDocsPage';
 import { AWS_IMPORT_COMMANDS } from './importAws';
 import { AZURE_IMPORT_COMMANDS } from './importAzure';
 import { handleMcpBody } from './mcp';
@@ -104,11 +105,13 @@ const ROUTES: Record<string, { GET?: Route; POST?: Route }> = {
       json(200, {
         name: 'Cloud network planner API',
         description: 'Create, check, import, export and share network designs. Nothing is stored; every call carries its design.',
+        docs: `${req.appUrl}api/docs`,
         openapi: `${req.appUrl}api/openapi.json`,
         mcp: `${req.appUrl}api/mcp`,
         designFormat: `${req.appUrl}api/design-format`,
       }),
   },
+  '/docs': { GET: (req) => text(apiDocsPage(req.appUrl), 'text/html') },
   '/openapi.json': { GET: (req) => json(200, openApiDocument(req.appUrl)) },
   '/design-format': { GET: () => text(DESIGN_FORMAT, 'text/markdown') },
   '/regions': { GET: (req) => json(200, listRegions(readCloud(req.query.get('cloud'), 'azure'))) },
