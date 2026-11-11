@@ -8,6 +8,9 @@
 #   (unless it is a draft or has the "hold" label), and production is deployed.
 # - A push to main deploys to production. Closing a PR removes its preview.
 #
+# The API (/api, including the MCP server at /api/mcp) deploys with it as the
+# Static Web App's managed functions.
+#
 # Needs the repository secret AZURE_STATIC_WEB_APPS_API_TOKEN: the Static Web
 # App's deployment token.
 
@@ -48,10 +51,14 @@ jobs:
       # Type-checks (strict, no unused code) before building.
       - run: npm run build
 
+      # dist/ is the app; dist-api/ the API, built into one file with the
+      # host.json and package.json Azure Functions needs.
       - uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: dist
+          path: |
+            dist
+            dist-api
           retention-days: 1
 
   deploy:
@@ -66,7 +73,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: dist
-          path: dist
 
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
@@ -74,10 +80,12 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
-          # Already built by the check job, so upload dist/ as is.
+          # Already built by the check job, so upload dist/ and dist-api/ as they are.
           app_location: dist
           skip_app_build: true
-          api_location: ''
+          # Managed functions under /api; the runtime is set in staticwebapp.config.json.
+          api_location: dist-api
+          skip_api_build: true
 
   auto-merge:
     name: Merge into main
