@@ -134,7 +134,7 @@ export function awsDefaultPlan(): PlanSpec {
     name: 'Example AWS network',
     cloud: 'aws',
     // A /12 has room for 16 regional /16s.
-    root: '10.0.0.0/12',
+    root: '10.0.0.0/8',
     regions: [makeAwsRegion(FIRST_AWS_REGION), makeAwsRegion('us-west-2')],
   };
 }
