@@ -40,7 +40,15 @@ describe('computePlan', () => {
       'nva-ha-snet 10.0.1.32/27',
       'nva-mgmt-snet 10.0.1.64/27',
     ]);
-    expect(result.free.map(formatCidr)).toEqual(['10.2.0.0/15', '10.4.0.0/14', '10.8.0.0/13']);
+    expect(result.free.map(formatCidr)).toEqual([
+      '10.2.0.0/15',
+      '10.4.0.0/14',
+      '10.8.0.0/13',
+      '10.16.0.0/12',
+      '10.32.0.0/11',
+      '10.64.0.0/10',
+      '10.128.0.0/9',
+    ]);
   });
 
   it('switches between separate and combined platform networks, keeping landing zones', () => {
@@ -253,8 +261,17 @@ describe('computePlan', () => {
     // The other region takes the first free /16.
     expect(formatCidr(other.cidr!)).toBe('10.0.0.0/16');
 
+    // The default root is 10.0.0.0/8, so any second octet keeps the region in it
+    // and its spokes' subnets follow.
     plan.regions[0].fixed = '10.20.0.0/16';
-    expect(computePlan(plan).regions[0].issues[0].message).toMatch(/outside 10\.0\.0\.0\/12/);
+    const high = computePlan(plan);
+    expect(countIssues(high)).toEqual({ errors: 0, warnings: 0 });
+    const corp = high.regions[0].spokes.find((s) => s.name === 'corp-eus2-001-vnet')!;
+    expect(formatCidr(corp.cidr!)).toBe('10.20.8.0/22');
+    expect(corp.subnets.map((s) => formatCidr(s.cidr!))).toEqual(['10.20.8.0/24', '10.20.9.0/24', '10.20.10.0/26']);
+
+    plan.regions[0].fixed = '11.0.0.0/16';
+    expect(computePlan(plan).regions[0].issues[0].message).toMatch(/outside 10\.0\.0\.0\/8/);
   });
 
   it('reports an invalid pin and falls back to automatic allocation', () => {

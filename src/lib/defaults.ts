@@ -243,7 +243,7 @@ export function defaultPlan(): PlanSpec {
     version: 1,
     name: 'Contoso landing zones',
     // A /12 has room for 16 regional /16s.
-    root: '10.0.0.0/12',
+    root: '10.0.0.0/8',
     // Primary and secondary are an Azure region pair.
     regions: [makeRegion(FIRST_REGION, 'hub-spoke'), makeRegion('centralus', 'hub-spoke')],
   };
