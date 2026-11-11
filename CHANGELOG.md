@@ -2,7 +2,7 @@
 
 User-visible changes to the ALZ CIDR Planner, newest first. Dates are when the change was made (US Central time). Since 14 October 2026, every change reaches production through a pull request.
 
-## 2026-11-10: PR [#PRNUM](https://github.com/absmart/cloud-network-calc/pull/PRNUM)
+## 2026-11-10: PR [#7](https://github.com/absmart/cloud-network-calc/pull/7)
 
 ### Changed
 - **New plans start with a `10.0.0.0/8` root** (was `10.0.0.0/12`), for Azure and AWS. A /12 only reached 10.0 to 10.15, so pinning a region at a higher second octet (say `10.20.0.0/16`) put it outside the root and left its hub, spokes and subnets unallocated. Saved designs and share links keep the root they have; widen it in the root field if needed.
